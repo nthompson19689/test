@@ -1,0 +1,23 @@
+{
+  "name": "@transcript-assets/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx worker.ts",
+    "dev": "tsx watch worker.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.490.0",
+    "@prisma/client": "^5.19.1",
+    "fluent-ffmpeg": "^2.1.2",
+    "openai": "^4.47.0"
+  },
+  "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.24",
+    "@types/node": "^20.11.5",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

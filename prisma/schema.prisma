@@ -1,0 +1,209 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+enum JobType {
+  TRANSCRIBE
+  MAKE_CLIP
+  GENERATE_ASSETS
+  EMBED_TABLE_ROW
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  RETRYING
+}
+
+enum MediaType {
+  AUDIO
+  VIDEO
+}
+
+enum ClipAspectRatio {
+  VERTICAL   // 9:16
+  SQUARE     // 1:1
+  HORIZONTAL // 16:9
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  projects      Project[]
+  userSecrets   UserSecret[]
+  tables        Table[]
+  jobs          Job[]
+
+  @@map("users")
+}
+
+model UserSecret {
+  id                  String   @id @default(cuid())
+  userId              String
+  encryptedApiKey     String   // Encrypted BYOK keys
+  encryptionIv        String   // Initialization vector for AES
+  provider            String   // e.g., "openai", "anthropic", "assemblyai"
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@map("user_secrets")
+}
+
+model Project {
+  id            String      @id @default(cuid())
+  userId        String
+  name          String
+  description   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaFiles    MediaFile[]
+
+  @@index([userId])
+  @@map("projects")
+}
+
+model MediaFile {
+  id              String       @id @default(cuid())
+  projectId       String
+  userId          String       // Denormalized for quick access checks
+  name            String
+  storageKey      String       // S3 key
+  storageBucket   String
+  mimeType        String
+  fileSize        BigInt
+  durationSeconds Float?
+  mediaType       MediaType
+  uploadedAt      DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  transcripts     Transcript[]
+  clips           Clip[]
+
+  @@index([projectId])
+  @@index([userId])
+  @@map("media_files")
+}
+
+model Transcript {
+  id              String          @id @default(cuid())
+  mediaFileId     String
+  userId          String          // Denormalized for access checks
+  segments        Json            // Array of {start, end, text, speaker?}
+  fullText        String          @db.Text
+  language        String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  mediaFile       MediaFile       @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  generatedAssets GeneratedAsset[]
+
+  @@unique([mediaFileId])
+  @@index([userId])
+  @@map("transcripts")
+}
+
+model Clip {
+  id              String          @id @default(cuid())
+  mediaFileId     String
+  userId          String          // Denormalized
+  name            String
+  startSeconds    Float
+  endSeconds      Float
+  aspectRatio     ClipAspectRatio
+  withCaptions    Boolean         @default(false)
+  storageKey      String?         // S3 key for generated clip
+  storageBucket   String?
+  subtitlesKey    String?         // S3 key for .srt file
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  mediaFile       MediaFile       @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  @@index([mediaFileId])
+  @@index([userId])
+  @@map("clips")
+}
+
+model GeneratedAsset {
+  id              String   @id @default(cuid())
+  transcriptId    String
+  userId          String   // Denormalized
+  name            String?
+  inputText       String   @db.Text // The transcript text used as input
+  retrievedContext Json    // Brand/ICP/proof rows retrieved
+  outputJson      Json     // {linkedin_posts, blog_outline, newsletter, hooks}
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  transcript      Transcript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+
+  @@index([transcriptId])
+  @@index([userId])
+  @@map("generated_assets")
+}
+
+model Table {
+  id          String     @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  schema      Json       // JSON schema defining columns {columns: [{name, type, description}]}
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rows        TableRow[]
+
+  @@index([userId])
+  @@map("tables")
+}
+
+model TableRow {
+  id          String                         @id @default(cuid())
+  tableId     String
+  userId      String                         // Denormalized
+  data        Json                           // JSON object matching table schema
+  textContent String                         @db.Text // Flattened text for embedding
+  embedding   Unsupported("vector(1536)")?   // pgvector embedding
+  createdAt   DateTime                       @default(now())
+  updatedAt   DateTime                       @updatedAt
+  table       Table                          @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@index([userId])
+  @@map("table_rows")
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  userId      String
+  type        JobType
+  status      JobStatus @default(PENDING)
+  payload     Json      // Job-specific data
+  result      Json?     // Job result or error info
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  lockedAt    DateTime?
+  lockedBy    String?   // Worker ID
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, lockedAt])
+  @@index([userId])
+  @@map("jobs")
+}
