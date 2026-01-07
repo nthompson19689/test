@@ -1,9 +1,9 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../lib/auth";
 import { redirect } from "next/navigation";
-import { getProject } from "../../actions/projects";
+import { prisma } from "../../../../lib/db";
 import Link from "next/link";
-import { formatFileSize, formatDuration } from "../../../../lib/utils";
+import { ProjectDetailClient } from "./ProjectDetailClient";
 
 export default async function ProjectPage({ params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -12,7 +12,31 @@ export default async function ProjectPage({ params }: { params: { id: string } }
     redirect("/auth/signin");
   }
 
-  const project = await getProject(params.id);
+  // Fetch project with all related data
+  const project = await prisma.project.findUnique({
+    where: { id: params.id },
+    include: {
+      mediaFiles: {
+        include: {
+          transcripts: {
+            include: {
+              generatedAssets: {
+                orderBy: { createdAt: "desc" },
+              },
+            },
+          },
+          clips: {
+            orderBy: { createdAt: "desc" },
+          },
+        },
+        orderBy: { uploadedAt: "desc" },
+      },
+    },
+  });
+
+  if (!project || project.userId !== session.user.id) {
+    redirect("/projects");
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -35,78 +59,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           <p className="text-gray-600 mb-6">{project.description}</p>
         )}
 
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Media Files</h2>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-              Upload Media
-            </button>
-          </div>
-
-          {project.mediaFiles.length === 0 ? (
-            <div className="bg-white rounded-lg shadow p-8 text-center">
-              <p className="text-gray-500">No media files yet. Upload your first file to get started.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {project.mediaFiles.map((file) => (
-                <div key={file.id} className="bg-white rounded-lg shadow p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="text-lg font-semibold">{file.name}</h3>
-                      <p className="text-sm text-gray-500">
-                        {file.mediaType} • {formatFileSize(Number(file.fileSize))}
-                        {file.durationSeconds && ` • ${formatDuration(file.durationSeconds)}`}
-                      </p>
-                    </div>
-                  </div>
-
-                  {file.transcripts.length > 0 ? (
-                    <div className="mt-4 p-4 bg-gray-50 rounded">
-                      <h4 className="font-medium mb-2">Transcript</h4>
-                      <p className="text-sm text-gray-700 line-clamp-3">
-                        {file.transcripts[0].fullText}
-                      </p>
-                      <div className="mt-3 flex gap-2">
-                        <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
-                          View Full Transcript
-                        </button>
-                        <button className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700">
-                          Generate Assets
-                        </button>
-                        <button className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700">
-                          Create Clip
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mt-4 p-4 bg-yellow-50 rounded">
-                      <p className="text-sm text-yellow-800">
-                        Transcription in progress... Check back in a few moments.
-                      </p>
-                    </div>
-                  )}
-
-                  {file.clips.length > 0 && (
-                    <div className="mt-4">
-                      <h4 className="font-medium mb-2">Clips ({file.clips.length})</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {file.clips.map((clip) => (
-                          <div key={clip.id} className="p-3 bg-gray-50 rounded text-sm">
-                            <div className="font-medium">{clip.name}</div>
-                            <div className="text-gray-500">
-                              {clip.startSeconds}s - {clip.endSeconds}s • {clip.aspectRatio}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ProjectDetailClient project={JSON.parse(JSON.stringify(project))} />
       </main>
     </div>
   );
