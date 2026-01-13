@@ -17,6 +17,7 @@ enum JobType {
   MAKE_CLIP
   GENERATE_ASSETS
   EMBED_TABLE_ROW
+  ANALYZE_CHANNEL
 }
 
 enum JobStatus {
@@ -206,4 +207,27 @@ model Job {
   @@index([status, lockedAt])
   @@index([userId])
   @@map("jobs")
+}
+
+model ChannelAnalysis {
+  id              String   @id @default(cuid())
+  userId          String
+  channelId       String   // YouTube channel ID
+  channelUrl      String   // Original URL provided
+  channelTitle    String
+  channelDescription String? @db.Text
+  subscriberCount BigInt?
+  videoCount      Int?
+  viewCount       BigInt?
+  thumbnailUrl    String?
+  videosAnalyzed  Json     // Array of video analysis objects
+  overallScore    Int      // 0-100 SEO score
+  recommendations Json     // Structured recommendations
+  rawData         Json?    // Raw API response for debugging
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([channelId])
+  @@map("channel_analyses")
 }

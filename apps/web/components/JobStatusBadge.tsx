@@ -72,6 +72,8 @@ export function JobStatusBadge({
         return "Generating assets";
       case "EMBED_TABLE_ROW":
         return "Embedding";
+      case "ANALYZE_CHANNEL":
+        return "Analyzing channel";
       default:
         return "Processing";
     }

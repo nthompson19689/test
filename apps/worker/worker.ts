@@ -5,6 +5,7 @@ import { processTranscribe } from "./processors/transcribe";
 import { processClip } from "./processors/clip";
 import { processGenerateAssets } from "./processors/assets";
 import { processEmbedTableRow } from "./processors/embed";
+import { processChannelAnalysis } from "./processors/channel-analysis";
 
 const WORKER_ID = process.env.WORKER_ID || `worker-${process.pid}`;
 const POLL_INTERVAL = parseInt(process.env.WORKER_POLL_INTERVAL_MS || "5000");
@@ -123,6 +124,9 @@ async function processJob(jobId: string, jobType: JobType) {
         break;
       case JobType.EMBED_TABLE_ROW:
         result = await processEmbedTableRow(jobId);
+        break;
+      case JobType.ANALYZE_CHANNEL:
+        result = await processChannelAnalysis(jobId);
         break;
       default:
         throw new Error(`Unknown job type: ${jobType}`);

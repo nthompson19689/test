@@ -22,6 +22,12 @@ export default async function ProjectsPage() {
             <h1 className="text-xl font-bold">Transcript to Assets</h1>
             <div className="flex items-center gap-4">
               <Link
+                href="/channel-analyzer"
+                className="text-sm text-gray-700 hover:text-gray-900"
+              >
+                Channel Analyzer
+              </Link>
+              <Link
                 href="/tables"
                 className="text-sm text-gray-700 hover:text-gray-900"
               >
