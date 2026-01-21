@@ -184,6 +184,15 @@ export default function Home() {
 
   // Add API key
   const handleAddKey = async () => {
+    if (!newKeyData.name || !newKeyData.apiKey) {
+      alert("Please fill in all fields");
+      return;
+    }
+    if (newKeyData.apiKey.length < 10) {
+      alert("API key seems too short. Please check and try again.");
+      return;
+    }
+
     try {
       const res = await fetch("/api/keys", {
         method: "POST",
@@ -194,13 +203,15 @@ export default function Home() {
       if (data.success) {
         setShowAddKey(false);
         setNewKeyData({ provider: "openai", name: "", apiKey: "" });
-        loadApiKeys();
+        await loadApiKeys();
+        // Reopen settings to show the new key
+        setTimeout(() => setShowSettings(true), 100);
       } else {
         alert(data.error?.message || "Failed to add API key");
       }
     } catch (error) {
       console.error("Failed to add API key:", error);
-      alert("Failed to add API key");
+      alert("Failed to add API key. Please check your network connection.");
     }
   };
 
@@ -461,7 +472,10 @@ export default function Home() {
               <p className="text-sm text-slate-400">
                 Manage your API keys for different providers
               </p>
-              <Button size="sm" onClick={() => setShowAddKey(true)}>
+              <Button size="sm" onClick={() => {
+                setShowSettings(false);
+                setTimeout(() => setShowAddKey(true), 100);
+              }}>
                 <Plus className="w-4 h-4 mr-1" />
                 Add Key
               </Button>
@@ -506,7 +520,13 @@ export default function Home() {
       </Dialog>
 
       {/* Add Key Dialog */}
-      <Dialog open={showAddKey} onOpenChange={setShowAddKey}>
+      <Dialog open={showAddKey} onOpenChange={(open) => {
+        setShowAddKey(open);
+        if (!open) {
+          // Reset form when closing
+          setNewKeyData({ provider: "openai", name: "", apiKey: "" });
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add API Key</DialogTitle>
@@ -522,7 +542,7 @@ export default function Home() {
                 }
               >
                 <SelectTrigger className="mt-1.5">
-                  <SelectValue />
+                  <SelectValue placeholder="Select a provider" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="openai">OpenAI</SelectItem>
@@ -543,6 +563,7 @@ export default function Home() {
                 placeholder="My API Key"
                 className="mt-1.5"
               />
+              <p className="text-xs text-slate-400 mt-1">A friendly name to identify this key</p>
             </div>
 
             <div>
@@ -556,6 +577,7 @@ export default function Home() {
                 placeholder="sk-..."
                 className="mt-1.5"
               />
+              <p className="text-xs text-slate-400 mt-1">Your API key will be encrypted before storage</p>
             </div>
           </div>
 
@@ -563,7 +585,12 @@ export default function Home() {
             <Button variant="outline" onClick={() => setShowAddKey(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddKey}>Add Key</Button>
+            <Button
+              onClick={handleAddKey}
+              disabled={!newKeyData.name || !newKeyData.apiKey || newKeyData.apiKey.length < 10}
+            >
+              Add Key
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
