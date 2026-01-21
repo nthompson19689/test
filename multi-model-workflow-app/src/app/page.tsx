@@ -88,6 +88,7 @@ export default function Home() {
     name: "",
     apiKey: "",
   });
+  const [isAddingKey, setIsAddingKey] = useState(false);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState("New Workflow");
@@ -184,6 +185,13 @@ export default function Home() {
 
   // Add API key
   const handleAddKey = async () => {
+    console.log("handleAddKey called with:", { provider: newKeyData.provider, name: newKeyData.name, keyLength: newKeyData.apiKey.length });
+
+    if (isAddingKey) {
+      console.log("Already adding key, ignoring duplicate call");
+      return;
+    }
+
     if (!newKeyData.name || !newKeyData.apiKey) {
       alert("Please fill in all fields");
       return;
@@ -193,25 +201,56 @@ export default function Home() {
       return;
     }
 
+    console.log("Validation passed, making fetch request...");
+    setIsAddingKey(true);
+
     try {
+      const requestBody = JSON.stringify({
+        provider: newKeyData.provider,
+        name: newKeyData.name,
+        apiKey: newKeyData.apiKey,
+      });
+      console.log("Request body:", requestBody);
+
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newKeyData),
+        body: requestBody,
       });
-      const data = await res.json();
+
+      console.log("Fetch completed, status:", res.status, "ok:", res.ok);
+
+      // Read response as text first, then parse
+      const responseText = await res.text();
+      console.log("Response text:", responseText);
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+        console.log("Parsed data:", data);
+      } catch (parseError) {
+        console.error("Invalid JSON response:", responseText, parseError);
+        alert("Failed to add API key: Server returned invalid response");
+        setIsAddingKey(false);
+        return;
+      }
+
       if (data.success) {
+        console.log("Success! Closing dialog and reloading keys...");
         setShowAddKey(false);
         setNewKeyData({ provider: "openai", name: "", apiKey: "" });
         await loadApiKeys();
-        // Reopen settings to show the new key
         setTimeout(() => setShowSettings(true), 100);
       } else {
-        alert(data.error?.message || "Failed to add API key");
+        console.log("API returned error:", data.error);
+        alert(data.error?.message || "API returned an error");
       }
     } catch (error) {
-      console.error("Failed to add API key:", error);
-      alert("Failed to add API key. Please check your network connection.");
+      console.error("Fetch error:", error);
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
+      alert(`Network error: ${errorMsg}`);
+    } finally {
+      setIsAddingKey(false);
     }
   };
 
@@ -525,6 +564,7 @@ export default function Home() {
         if (!open) {
           // Reset form when closing
           setNewKeyData({ provider: "openai", name: "", apiKey: "" });
+          setIsAddingKey(false);
         }
       }}>
         <DialogContent>
@@ -582,14 +622,15 @@ export default function Home() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddKey(false)}>
+            <Button type="button" variant="outline" onClick={() => setShowAddKey(false)} disabled={isAddingKey}>
               Cancel
             </Button>
             <Button
+              type="button"
               onClick={handleAddKey}
-              disabled={!newKeyData.name || !newKeyData.apiKey || newKeyData.apiKey.length < 10}
+              disabled={isAddingKey || !newKeyData.name || !newKeyData.apiKey || newKeyData.apiKey.length < 10}
             >
-              Add Key
+              {isAddingKey ? "Adding..." : "Add Key"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -21,14 +21,21 @@ const CreateKeySchema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
+    console.log('POST /api/keys - Starting...');
     const body = await request.json();
+    console.log('Request body received:', { provider: body.provider, name: body.name, keyLength: body.apiKey?.length });
+
     const validated = CreateKeySchema.parse(body);
+    console.log('Validation passed');
 
     // Encrypt the API key
+    console.log('Encrypting API key...');
     const encryptedKey = await encrypt(validated.apiKey);
     const keyLastFour = getKeyLastFour(validated.apiKey);
+    console.log('Encryption complete, keyLastFour:', keyLastFour);
 
     // Create the key record
+    console.log('Creating database record...');
     const apiKey = await prisma.apiKey.create({
       data: {
         provider: validated.provider,
@@ -46,6 +53,7 @@ export async function POST(request: NextRequest) {
         createdAt: true,
       },
     });
+    console.log('Database record created:', apiKey.id);
 
     return NextResponse.json({
       success: true,
@@ -67,10 +75,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Return more specific error message
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       {
         success: false,
-        error: { message: 'Failed to create API key' },
+        error: { message: `Failed to create API key: ${errorMessage}` },
       },
       { status: 500 }
     );
