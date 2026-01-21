@@ -61,8 +61,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Create API key error:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
 
     if (error instanceof z.ZodError) {
+      console.log('Zod validation error:', JSON.stringify(error.errors));
       return NextResponse.json(
         {
           success: false,
@@ -77,6 +79,7 @@ export async function POST(request: NextRequest) {
 
     // Return more specific error message
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Returning error response:', errorMessage);
     return NextResponse.json(
       {
         success: false,

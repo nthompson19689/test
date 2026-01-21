@@ -384,6 +384,40 @@ export default function Home() {
     }));
   };
 
+  // Debug function to test API directly
+  const testApiDirectly = async () => {
+    console.log("Testing API directly...");
+    try {
+      const testData = {
+        provider: "openai",
+        name: "Direct Test " + Date.now(),
+        apiKey: "sk-test-direct-api-call-12345678901234567890"
+      };
+      console.log("Sending:", testData);
+
+      const res = await fetch("/api/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(testData),
+      });
+
+      console.log("Response status:", res.status);
+      const text = await res.text();
+      console.log("Response body:", text);
+
+      const data = JSON.parse(text);
+      if (data.success) {
+        alert("SUCCESS! API key created: " + data.data.id);
+        loadApiKeys();
+      } else {
+        alert("API Error: " + (data.error?.message || JSON.stringify(data.error)));
+      }
+    } catch (err) {
+      console.error("Direct test error:", err);
+      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col bg-slate-950 text-white">
       {/* Header */}
@@ -392,14 +426,24 @@ export default function Home() {
           <GitBranch className="w-6 h-6 text-blue-400" />
           <span className="font-semibold text-lg">Multi-Model Workflow</span>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowSettings(true)}
-        >
-          <Settings className="w-4 h-4 mr-2" />
-          Settings
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={testApiDirectly}
+            className="text-green-400 border-green-400 hover:bg-green-400/10"
+          >
+            Test API
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowSettings(true)}
+          >
+            <Settings className="w-4 h-4 mr-2" />
+            Settings
+          </Button>
+        </div>
       </header>
 
       {/* Main Content */}
