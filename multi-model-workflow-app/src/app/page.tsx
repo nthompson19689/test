@@ -386,36 +386,50 @@ export default function Home() {
 
   // Debug function to test API directly
   const testApiDirectly = async () => {
-    console.log("Testing API directly...");
+    const statusDiv = document.createElement('div');
+    statusDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#000;color:#fff;padding:20px;z-index:9999;border:2px solid #0f0;font-family:monospace;max-width:80%;white-space:pre-wrap;';
+    statusDiv.textContent = 'Starting test...';
+    document.body.appendChild(statusDiv);
+
+    const log = (msg: string) => {
+      console.log(msg);
+      statusDiv.textContent += '\n' + msg;
+    };
+
     try {
+      log('Testing API...');
       const testData = {
         provider: "openai",
         name: "Direct Test " + Date.now(),
         apiKey: "sk-test-direct-api-call-12345678901234567890"
       };
-      console.log("Sending:", testData);
+      log('Data: ' + JSON.stringify(testData));
 
-      const res = await fetch("/api/keys", {
+      const apiUrl = window.location.origin + "/api/keys";
+      log('URL: ' + apiUrl);
+
+      const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(testData),
       });
 
-      console.log("Response status:", res.status);
+      log('Status: ' + res.status);
       const text = await res.text();
-      console.log("Response body:", text);
+      log('Response: ' + text.substring(0, 200));
 
       const data = JSON.parse(text);
       if (data.success) {
-        alert("SUCCESS! API key created: " + data.data.id);
+        log('SUCCESS! Key ID: ' + data.data.id);
         loadApiKeys();
       } else {
-        alert("API Error: " + (data.error?.message || JSON.stringify(data.error)));
+        log('ERROR: ' + (data.error?.message || JSON.stringify(data.error)));
       }
     } catch (err) {
-      console.error("Direct test error:", err);
-      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+      log('EXCEPTION: ' + (err instanceof Error ? err.message : String(err)));
     }
+
+    setTimeout(() => statusDiv.remove(), 10000);
   };
 
   return (
