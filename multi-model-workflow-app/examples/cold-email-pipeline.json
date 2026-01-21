@@ -1,0 +1,75 @@
+{
+  "name": "Content to Cold Email Pipeline",
+  "description": "Scrape a webpage, summarize it, extract ICP pains, and draft a personalized outbound email.",
+  "nodes": [
+    {
+      "id": "node_scraper",
+      "name": "scraper",
+      "nodeType": "SCRAPE_URL",
+      "config": {
+        "url": "https://example.com/product-page"
+      },
+      "positionX": 100,
+      "positionY": 100
+    },
+    {
+      "id": "node_summarizer",
+      "name": "summarizer",
+      "nodeType": "GENERATE_TEXT",
+      "config": {
+        "prompt": "Summarize the following webpage content in 2-3 paragraphs, focusing on the key value propositions and features:\n\n#scraper.clean_text",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "apiKeyId": "YOUR_OPENAI_KEY_ID",
+        "temperature": 0.5
+      },
+      "positionX": 100,
+      "positionY": 250
+    },
+    {
+      "id": "node_analyzer",
+      "name": "icp_analyzer",
+      "nodeType": "ANALYZE",
+      "config": {
+        "prompt": "Based on this product summary, identify the Ideal Customer Profile (ICP) and their main pain points. Extract 3-5 specific pain points.\n\nSummary:\n#summarizer.text",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "apiKeyId": "YOUR_OPENAI_KEY_ID",
+        "outputSchema": "{\"icp_description\": \"string\", \"pain_points\": [\"string\"], \"value_alignment\": [\"string\"]}"
+      },
+      "positionX": 100,
+      "positionY": 400
+    },
+    {
+      "id": "node_email",
+      "name": "email_writer",
+      "nodeType": "GENERATE_TEXT",
+      "config": {
+        "prompt": "Write a personalized cold outreach email for a prospect matching this ICP. Address their pain points and explain how the product solves them. Keep it under 150 words.\n\nICP Analysis:\n#icp_analyzer.json",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "apiKeyId": "YOUR_OPENAI_KEY_ID",
+        "temperature": 0.7
+      },
+      "positionX": 100,
+      "positionY": 550
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_1",
+      "sourceNodeId": "node_scraper",
+      "targetNodeId": "node_summarizer"
+    },
+    {
+      "id": "edge_2",
+      "sourceNodeId": "node_summarizer",
+      "targetNodeId": "node_analyzer"
+    },
+    {
+      "id": "edge_3",
+      "sourceNodeId": "node_analyzer",
+      "targetNodeId": "node_email"
+    }
+  ]
+}

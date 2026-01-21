@@ -1,0 +1,77 @@
+{
+  "name": "Research to LinkedIn Post with Image",
+  "description": "Research a topic using Perplexity, analyze pros/cons, generate a LinkedIn post and AI image.",
+  "nodes": [
+    {
+      "id": "node_research",
+      "name": "researcher",
+      "nodeType": "RESEARCH",
+      "config": {
+        "prompt": "Research the latest trends and developments in AI agents and autonomous AI systems. Include key companies, technologies, and use cases.",
+        "provider": "perplexity",
+        "model": "llama-3.1-sonar-large-128k-online",
+        "apiKeyId": "YOUR_PERPLEXITY_KEY_ID"
+      },
+      "positionX": 100,
+      "positionY": 100
+    },
+    {
+      "id": "node_analysis",
+      "name": "pros_cons",
+      "nodeType": "ANALYZE",
+      "config": {
+        "prompt": "Analyze the following research on AI agents. Provide a balanced view of pros and cons, and identify the most important takeaways for business leaders.\n\nResearch:\n#researcher.text\n\nCitations:\n#researcher.citations",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "apiKeyId": "YOUR_OPENAI_KEY_ID",
+        "outputSchema": "{\"pros\": [\"string\"], \"cons\": [\"string\"], \"key_takeaways\": [\"string\"], \"recommended_image_prompt\": \"string\"}"
+      },
+      "positionX": 100,
+      "positionY": 250
+    },
+    {
+      "id": "node_post",
+      "name": "linkedin_post",
+      "nodeType": "GENERATE_TEXT",
+      "config": {
+        "prompt": "Write an engaging LinkedIn post about AI agents based on this analysis. Include:\n- A hook in the first line\n- 3-4 key insights\n- A call-to-action\n- Relevant hashtags\n\nAnalysis:\n#pros_cons.json\n\nKeep it under 1300 characters for optimal engagement.",
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet-20241022",
+        "apiKeyId": "YOUR_ANTHROPIC_KEY_ID",
+        "temperature": 0.8
+      },
+      "positionX": 100,
+      "positionY": 400
+    },
+    {
+      "id": "node_image",
+      "name": "post_image",
+      "nodeType": "GENERATE_IMAGE",
+      "config": {
+        "prompt": "#pros_cons.json | pick:recommended_image_prompt",
+        "provider": "openai",
+        "apiKeyId": "YOUR_OPENAI_KEY_ID",
+        "size": "1792x1024"
+      },
+      "positionX": 350,
+      "positionY": 400
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_1",
+      "sourceNodeId": "node_research",
+      "targetNodeId": "node_analysis"
+    },
+    {
+      "id": "edge_2",
+      "sourceNodeId": "node_analysis",
+      "targetNodeId": "node_post"
+    },
+    {
+      "id": "edge_3",
+      "sourceNodeId": "node_analysis",
+      "targetNodeId": "node_image"
+    }
+  ]
+}

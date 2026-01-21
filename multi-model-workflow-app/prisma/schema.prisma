@@ -1,0 +1,229 @@
+// Prisma Schema for Multi-Model Workflow App
+// Database: SQLite (MVP) - ready for PostgreSQL migration
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// User Management (Optional for MVP)
+// ============================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  apiKeys   ApiKey[]
+  workflows Workflow[]
+  runs      Run[]
+  chats     Chat[]
+}
+
+// ============================================
+// API Key Management
+// ============================================
+
+model ApiKey {
+  id               String   @id @default(uuid())
+  userId           String?
+  provider         String   // 'openai' | 'anthropic' | 'google' | 'perplexity'
+  name             String   // User-friendly name
+  encryptedKey     String   // Encrypted API key (libsodium)
+  keyLastFour      String   // Last 4 chars for display
+  isValid          Boolean  @default(true)
+  lastUsedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, provider])
+  @@index([provider])
+}
+
+// ============================================
+// Workflow Definition
+// ============================================
+
+model Workflow {
+  id          String   @id @default(uuid())
+  userId      String?
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  user  User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nodes WorkflowNode[]
+  edges WorkflowEdge[]
+  runs  Run[]
+
+  @@index([userId])
+}
+
+model WorkflowNode {
+  id         String   @id @default(uuid())
+  workflowId String
+  nodeType   String   // 'SCRAPE_URL' | 'RESEARCH' | 'ANALYZE' | 'GENERATE_TEXT' | 'GENERATE_IMAGE'
+  name       String   // User-defined name for referencing (e.g., "scraper", "summarizer")
+  config     String   // JSON config specific to node type
+  positionX  Float    @default(0)
+  positionY  Float    @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  workflow     Workflow       @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  sourceEdges  WorkflowEdge[] @relation("SourceNode")
+  targetEdges  WorkflowEdge[] @relation("TargetNode")
+  runSteps     RunStep[]
+
+  @@index([workflowId])
+}
+
+model WorkflowEdge {
+  id           String   @id @default(uuid())
+  workflowId   String
+  sourceNodeId String
+  targetNodeId String
+  sourceHandle String?  // Output handle name
+  targetHandle String?  // Input handle name
+  createdAt    DateTime @default(now())
+
+  // Relations
+  workflow   Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  sourceNode WorkflowNode @relation("SourceNode", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNode WorkflowNode @relation("TargetNode", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@index([sourceNodeId])
+  @@index([targetNodeId])
+}
+
+// ============================================
+// Workflow Execution
+// ============================================
+
+model Run {
+  id          String    @id @default(uuid())
+  workflowId  String
+  userId      String?
+  status      String    @default("pending") // 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  startedAt   DateTime?
+  completedAt DateTime?
+  error       String?   // JSON error object (server-side only, redacted for client)
+  metadata    String?   // JSON metadata (trigger info, etc.)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  workflow Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  steps    RunStep[]
+
+  @@index([workflowId])
+  @@index([userId])
+  @@index([status])
+}
+
+model RunStep {
+  id          String    @id @default(uuid())
+  runId       String
+  nodeId      String
+  status      String    @default("queued") // 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped'
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  // Execution details
+  inputs      String?   // JSON - resolved inputs
+  outputs     String?   // JSON - step outputs
+  error       String?   // JSON error (full server-side, redacted client)
+
+  // Token usage tracking
+  tokensInput  Int?
+  tokensOutput Int?
+
+  // Timing
+  durationMs  Int?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  run       Run          @relation(fields: [runId], references: [id], onDelete: Cascade)
+  node      WorkflowNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  artifacts Artifact[]
+
+  @@index([runId])
+  @@index([nodeId])
+  @@index([status])
+}
+
+model Artifact {
+  id         String   @id @default(uuid())
+  runStepId  String
+  name       String   // e.g., 'raw_html', 'clean_text', 'summary', 'image'
+  type       String   // 'text' | 'json' | 'html' | 'image' | 'url'
+  content    String   // Actual content or base64 for images
+  size       Int?     // Size in bytes
+  createdAt  DateTime @default(now())
+
+  // Relations
+  runStep RunStep @relation(fields: [runStepId], references: [id], onDelete: Cascade)
+
+  @@index([runStepId])
+  @@index([name])
+}
+
+// ============================================
+// Chat (Multi-Model Chat Interface)
+// ============================================
+
+model Chat {
+  id        String   @id @default(uuid())
+  userId    String?
+  title     String   @default("New Chat")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user     User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  chatId    String
+  role      String   // 'user' | 'assistant' | 'system'
+  content   String   // Text content
+  images    String?  // JSON array of image URLs or base64
+
+  // Model info
+  provider  String?  // 'openai' | 'anthropic' | 'google' | 'perplexity'
+  model     String?  // Specific model used
+
+  // Usage tracking
+  tokensInput  Int?
+  tokensOutput Int?
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+}
