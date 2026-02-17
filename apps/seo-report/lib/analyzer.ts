@@ -81,12 +81,9 @@ export async function generateSEOReport(
 
     const hubKeywords: typeof hubKeywordMap extends Map<string, infer V> ? V : never = [];
 
-    // Build seed list for this hub: topic phrase + any matching existing keywords
-    const seeds = [hub.topic, ...hub.seedKeywords].slice(0, 10);
-
-    // Keyword suggestions for this hub
+    // Keyword suggestions for this hub (API accepts a single keyword string)
     try {
-      const suggestionsResponse = await client.getKeywordSuggestions(seeds, perHubLimit);
+      const suggestionsResponse = await client.getKeywordSuggestions(hub.topic, perHubLimit);
       const suggestionsResult = suggestionsResponse.tasks?.[0]?.result?.[0];
       if (suggestionsResult?.items) {
         for (const item of suggestionsResult.items) {
@@ -125,9 +122,9 @@ export async function generateSEOReport(
       warnings.push({ step: 'hub_suggestions', message: `Suggestions for hub "${hub.topic}" failed: ${msg}` });
     }
 
-    // Related keywords for this hub
+    // Related keywords for this hub (API accepts a single keyword string)
     try {
-      const relatedResponse = await client.getRelatedKeywords(seeds.slice(0, 5), perHubLimit);
+      const relatedResponse = await client.getRelatedKeywords(hub.topic, perHubLimit);
       const relatedResult = relatedResponse.tasks?.[0]?.result?.[0];
       if (relatedResult?.items) {
         for (const item of relatedResult.items) {
@@ -324,13 +321,13 @@ async function fetchCompetitorGaps(
       for (const item of result.items) {
         allGaps.push({
           keyword: item.keyword_data.keyword,
-          position: item.first_domain_serp_element.serp_item.rank_group,
+          position: item.first_domain_serp_element.rank_group,
           searchVolume: item.keyword_data.keyword_info.search_volume || 0,
           cpc: item.keyword_data.keyword_info.cpc || 0,
           competition: item.keyword_data.keyword_info.competition || 0,
-          url: item.first_domain_serp_element.serp_item.url || '',
+          url: item.first_domain_serp_element.url || '',
           trafficCost: 0,
-          estimatedTraffic: item.first_domain_serp_element.serp_item.etv || 0,
+          estimatedTraffic: item.first_domain_serp_element.etv || 0,
           keywordDifficulty: item.keyword_data.keyword_properties?.keyword_difficulty || 0,
           intent: item.keyword_data.search_intent_info
             ? [item.keyword_data.search_intent_info.main_intent, ...(item.keyword_data.search_intent_info.foreign_intent || [])]

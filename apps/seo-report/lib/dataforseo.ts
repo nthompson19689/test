@@ -109,11 +109,11 @@ export class DataForSEOClient {
     );
   }
 
-  async getKeywordSuggestions(seedKeywords: string[], limit = 500): Promise<DataForSEOResponse<KeywordSuggestionsResult>> {
+  async getKeywordSuggestions(keyword: string, limit = 500): Promise<DataForSEOResponse<KeywordSuggestionsResult>> {
     return this.request<KeywordSuggestionsResult>(
       '/dataforseo_labs/google/keyword_suggestions/live',
       [{
-        keywords: seedKeywords.slice(0, 20),
+        keyword,
         location_code: this.locationCode,
         language_code: this.languageCode,
         limit,
@@ -123,11 +123,11 @@ export class DataForSEOClient {
     );
   }
 
-  async getRelatedKeywords(seedKeywords: string[], limit = 500): Promise<DataForSEOResponse<RelatedKeywordsResult>> {
+  async getRelatedKeywords(keyword: string, limit = 500): Promise<DataForSEOResponse<RelatedKeywordsResult>> {
     return this.request<RelatedKeywordsResult>(
       '/dataforseo_labs/google/related_keywords/live',
       [{
-        keywords: seedKeywords.slice(0, 20),
+        keyword,
         location_code: this.locationCode,
         language_code: this.languageCode,
         limit,
@@ -354,18 +354,24 @@ export interface DomainIntersectionItem {
     };
   };
   first_domain_serp_element: {
-    serp_item: {
-      rank_group: number;
-      url: string;
-      etv: number;
-    };
+    se_type: string;
+    type: string;
+    rank_group: number;
+    rank_absolute: number;
+    domain: string;
+    url: string;
+    etv: number;
+    estimated_paid_traffic_cost: number;
   };
   second_domain_serp_element: {
-    serp_item: {
-      rank_group: number;
-      url: string;
-      etv: number;
-    };
+    se_type: string;
+    type: string;
+    rank_group: number;
+    rank_absolute: number;
+    domain: string;
+    url: string;
+    etv: number;
+    estimated_paid_traffic_cost: number;
   } | null;
 }
 
