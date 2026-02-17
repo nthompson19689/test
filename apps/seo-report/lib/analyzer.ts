@@ -11,10 +11,17 @@ import type {
 } from './types';
 import { buildHubAndSpoke } from './hub-spoke';
 
+/** Warnings collected during analysis (non-fatal issues) */
+export interface AnalysisWarning {
+  step: string;
+  message: string;
+}
+
 export async function generateSEOReport(
   input: SEOReportInput,
   onProgress?: (step: string, pct: number) => void
-): Promise<SEOReport> {
+): Promise<SEOReport & { warnings: AnalysisWarning[] }> {
+  const warnings: AnalysisWarning[] = [];
   const client = new DataForSEOClient(
     input.dataforseoLogin,
     input.dataforseoPassword,
@@ -24,10 +31,15 @@ export async function generateSEOReport(
 
   const progress = (step: string, pct: number) => onProgress?.(step, pct);
 
+  // Step 0: Verify credentials before burning time on a full pipeline
+  progress('Verifying DataForSEO credentials...', 2);
+  await client.verifyCredentials();
+  progress('Credentials verified', 5);
+
   // Step 1: Get current rankings
-  progress('Fetching current rankings...', 5);
+  progress('Fetching current rankings...', 8);
   const currentRankings = await fetchCurrentRankings(client, input.domain);
-  progress('Current rankings loaded', 20);
+  progress(`Current rankings loaded (${currentRankings.length} keywords)`, 20);
 
   // Step 2: Get competitors
   progress('Identifying top competitors...', 25);
@@ -36,13 +48,13 @@ export async function generateSEOReport(
 
   // Step 3: Get competitor keyword gaps
   progress('Analyzing competitor keyword gaps...', 40);
-  const competitorKeywords = await fetchCompetitorGaps(client, input.domain, competitors.slice(0, 3));
-  progress('Competitor analysis complete', 55);
+  const competitorKeywords = await fetchCompetitorGaps(client, input.domain, competitors.slice(0, 3), warnings);
+  progress(`Competitor analysis complete (${competitorKeywords.length} gap keywords)`, 55);
 
   // Step 4: Get net new keyword opportunities
   progress('Discovering net new keyword opportunities...', 60);
-  const netNewOpportunities = await fetchNetNewOpportunities(client, input.domain, currentRankings);
-  progress('Keyword opportunities found', 75);
+  const netNewOpportunities = await fetchNetNewOpportunities(client, input.domain, currentRankings, warnings);
+  progress(`Keyword opportunities found (${netNewOpportunities.length})`, 75);
 
   // Step 5: Generate content refresh suggestions
   progress('Generating content refresh suggestions...', 80);
@@ -92,13 +104,19 @@ export async function generateSEOReport(
     netNewOpportunities: netNewOpportunities.slice(0, 500),
     contentRefreshSuggestions,
     hubAndSpoke,
+    warnings,
   };
 }
 
 async function fetchCurrentRankings(client: DataForSEOClient, domain: string): Promise<RankedKeyword[]> {
   const response = await client.getRankedKeywords(domain, 1000);
   const result = response.tasks?.[0]?.result?.[0];
-  if (!result?.items) return [];
+  if (!result?.items || result.items.length === 0) {
+    // This is expected for brand-new domains with no organic presence.
+    // Return empty but don't throw — the rest of the pipeline can still
+    // find opportunities via keywords_for_site fallback.
+    return [];
+  }
 
   return result.items.map(item => ({
     keyword: item.keyword_data.keyword,
@@ -140,7 +158,8 @@ async function fetchCompetitors(client: DataForSEOClient, domain: string): Promi
 async function fetchCompetitorGaps(
   client: DataForSEOClient,
   domain: string,
-  competitors: CompetitorDomain[]
+  competitors: CompetitorDomain[],
+  warnings: AnalysisWarning[]
 ): Promise<CompetitorKeyword[]> {
   const allGaps: CompetitorKeyword[] = [];
 
@@ -167,8 +186,9 @@ async function fetchCompetitorGaps(
           competitorDomain: competitor.domain,
         });
       }
-    } catch {
-      // Skip failed competitor analysis and continue
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      warnings.push({ step: 'competitor_gaps', message: `Failed to fetch gaps for ${competitor.domain}: ${msg}` });
     }
   }
 
@@ -187,7 +207,8 @@ async function fetchCompetitorGaps(
 async function fetchNetNewOpportunities(
   client: DataForSEOClient,
   domain: string,
-  currentRankings: RankedKeyword[]
+  currentRankings: RankedKeyword[],
+  warnings: AnalysisWarning[]
 ): Promise<KeywordOpportunity[]> {
   const currentKeywords = new Set(currentRankings.map(k => k.keyword.toLowerCase()));
 
@@ -245,8 +266,9 @@ async function fetchNetNewOpportunities(
         }
       }
     }
-  } catch {
-    // Continue if suggestions fail
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    warnings.push({ step: 'keyword_suggestions', message: `Keyword suggestions failed: ${msg}` });
   }
 
   // Fetch related keywords
@@ -271,8 +293,9 @@ async function fetchNetNewOpportunities(
         }
       }
     }
-  } catch {
-    // Continue if related keywords fail
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    warnings.push({ step: 'related_keywords', message: `Related keywords failed: ${msg}` });
   }
 
   // Deduplicate

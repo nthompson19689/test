@@ -2,6 +2,9 @@
 
 import { useState } from 'react';
 import type { SEOReport } from '@/lib/types';
+import type { AnalysisWarning } from '@/lib/analyzer';
+
+type ReportWithWarnings = SEOReport & { warnings?: AnalysisWarning[] };
 import ReportForm from '@/components/ReportForm';
 import SummaryCards from '@/components/SummaryCards';
 import RankingsTable from '@/components/RankingsTable';
@@ -14,7 +17,7 @@ import ExportButton from '@/components/ExportButton';
 type Tab = 'summary' | 'rankings' | 'competitors' | 'opportunities' | 'refresh' | 'hub-spoke';
 
 export default function HomePage() {
-  const [report, setReport] = useState<SEOReport | null>(null);
+  const [report, setReport] = useState<ReportWithWarnings | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('summary');
 
   const tabs: { key: Tab; label: string; count?: number }[] = report ? [
@@ -48,6 +51,18 @@ export default function HomePage() {
               </button>
             </div>
           </div>
+
+          {/* Warnings */}
+          {report.warnings && report.warnings.length > 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-yellow-800 mb-1">Warnings during analysis</h3>
+              <ul className="text-sm text-yellow-700 space-y-1">
+                {report.warnings.map((w, i) => (
+                  <li key={i}><span className="font-medium">[{w.step}]</span> {w.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Tabs */}
           <div className="border-b border-gray-200">

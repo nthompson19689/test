@@ -13,6 +13,41 @@ export class DataForSEOClient {
     this.languageCode = languageCode;
   }
 
+  /**
+   * Lightweight check that credentials are valid before running the full pipeline.
+   * Uses a minimal ranked_keywords request (limit 1) to verify auth.
+   */
+  async verifyCredentials(): Promise<void> {
+    const res = await fetch(`${BASE_URL}/dataforseo_labs/google/ranked_keywords/live`, {
+      method: 'POST',
+      headers: {
+        'Authorization': this.authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify([{
+        target: 'google.com',
+        location_code: this.locationCode,
+        language_code: this.languageCode,
+        limit: 1,
+      }]),
+    });
+
+    if (!res.ok) {
+      throw new Error(`DataForSEO connection failed (HTTP ${res.status}). Check your credentials.`);
+    }
+
+    const data = await res.json();
+
+    if (data.status_code === 20000) return; // success
+
+    // DataForSEO error codes: 40100 = auth, 40000 = bad request, 50000 = server error
+    const msg = data.status_message || 'Unknown error';
+    if (data.status_code === 40100) {
+      throw new Error(`DataForSEO authentication failed: ${msg}. Double-check your login email and API password.`);
+    }
+    throw new Error(`DataForSEO error (${data.status_code}): ${msg}`);
+  }
+
   private async request<T>(endpoint: string, body: unknown[]): Promise<DataForSEOResponse<T>> {
     const res = await fetch(`${BASE_URL}${endpoint}`, {
       method: 'POST',
@@ -25,10 +60,25 @@ export class DataForSEOClient {
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`DataForSEO API error ${res.status}: ${text}`);
+      throw new Error(`DataForSEO API error (HTTP ${res.status}): ${text}`);
     }
 
-    return res.json();
+    const data: DataForSEOResponse<T> = await res.json();
+
+    // Check top-level status — catches auth failures, rate limits, etc.
+    if (data.status_code !== 20000) {
+      throw new Error(`DataForSEO API error (${data.status_code}): ${data.status_message}`);
+    }
+
+    // Check per-task status — catches bad parameters, no data, etc.
+    if (data.tasks?.length) {
+      const task = data.tasks[0];
+      if (task.status_code !== 20000) {
+        throw new Error(`DataForSEO task error (${task.status_code}): ${task.status_message}`);
+      }
+    }
+
+    return data;
   }
 
   async getRankedKeywords(domain: string, limit = 1000, offset = 0): Promise<DataForSEOResponse<RankedKeywordsResult>> {
