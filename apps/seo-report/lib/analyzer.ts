@@ -10,8 +10,8 @@ import type {
   ReportSummary,
   HubTopic,
 } from './types';
-import { deriveHubSeeds, buildHubAndSpoke, type HubSeed } from './hub-spoke';
-import { buildBrandContext, filterKeywordBatch } from './relevance-filter';
+import { deriveHubSeeds, buildHubAndSpoke } from './hub-spoke';
+import { buildBusinessContext, evaluateKeyword, scoreRelevance, type BusinessContext } from './relevance-filter';
 
 /** Warnings collected during analysis (non-fatal issues) */
 export interface AnalysisWarning {
@@ -33,36 +33,41 @@ export async function generateSEOReport(
 
   const progress = (step: string, pct: number) => onProgress?.(step, pct);
 
-  // Step 0: Verify credentials
-  progress('Verifying DataForSEO credentials...', 2);
-  await client.verifyCredentials();
-  progress('Credentials verified', 5);
+  // Step 0: Build Business Context Brief BEFORE any keyword research
+  progress('Building Business Context Brief...', 1);
+  const bizCtx = buildBusinessContext(input);
+  progress(`Business context built — ${bizCtx.categoryTerms.length} positive terms, ${bizCtx.isNotPatterns.length} exclusion patterns`, 3);
 
-  // Step 1: Get current rankings
+  // Step 1: Verify credentials
+  progress('Verifying DataForSEO credentials...', 4);
+  await client.verifyCredentials();
+  progress('Credentials verified', 6);
+
+  // Step 2: Get current rankings
   progress('Fetching current rankings...', 8);
   const currentRankings = await fetchCurrentRankings(client, input.domain);
   progress(`Current rankings loaded (${currentRankings.length} keywords)`, 15);
 
-  // Step 2: Get competitors
+  // Step 3: Get competitors
   progress('Identifying top competitors...', 18);
   const competitors = await fetchCompetitors(client, input.domain);
   progress('Competitors identified', 22);
 
-  // Step 3: Get competitor keyword gaps
+  // Step 4: Get competitor keyword gaps
   progress('Analyzing competitor keyword gaps...', 25);
   const competitorKeywords = await fetchCompetitorGaps(client, input.domain, competitors.slice(0, 3), warnings);
   progress(`Competitor analysis complete (${competitorKeywords.length} gap keywords)`, 35);
 
-  // Step 4: DERIVE HUB TOPICS from value proposition + current rankings
+  // Step 5: DERIVE HUB TOPICS from value proposition + current rankings
   progress('Deriving hub topics from value proposition...', 38);
   const hubSeeds = deriveHubSeeds(input.valueProposition, currentRankings, {
-    industry: input.industry,
+    industry: input.productCategory || input.industry,
     products: input.products,
-    targetAudience: input.targetAudience,
+    targetAudience: input.primaryBuyer || input.targetAudience,
   });
   progress(`Identified ${hubSeeds.length} hub topics — starting targeted research`, 40);
 
-  // Step 5: PER-HUB KEYWORD RESEARCH — this is where the 500 net new come from
+  // Step 6: PER-HUB KEYWORD RESEARCH with per-keyword filtering (bouncer at the door)
   const currentKeywords = new Set(currentRankings.map(k => k.keyword.toLowerCase()));
   const hubKeywordMap = new Map<string, {
     keyword: string;
@@ -75,18 +80,20 @@ export async function generateSEOReport(
   }[]>();
   const allNetNew: KeywordOpportunity[] = [];
   const globalSeenKeywords = new Set<string>();
+  let totalFiltered = 0;
+  const filterReasons = new Map<string, number>(); // Track why keywords are filtered
 
   // Budget: ~50 keywords per hub to reach 500+ total across 10-12 hubs
   const perHubLimit = Math.max(40, Math.ceil(550 / Math.max(hubSeeds.length, 1)));
 
   for (let i = 0; i < hubSeeds.length; i++) {
     const hub = hubSeeds[i];
-    const pctBase = 42 + Math.round((i / hubSeeds.length) * 40);
+    const pctBase = 42 + Math.round((i / hubSeeds.length) * 38);
     progress(`Researching hub ${i + 1}/${hubSeeds.length}: "${hub.topic}"...`, pctBase);
 
     const hubKeywords: typeof hubKeywordMap extends Map<string, infer V> ? V : never = [];
 
-    // Keyword suggestions for this hub (API accepts a single keyword string)
+    // Keyword suggestions for this hub
     try {
       const suggestionsResponse = await client.getKeywordSuggestions(hub.topic, perHubLimit);
       const suggestionsResult = suggestionsResponse.tasks?.[0]?.result?.[0];
@@ -96,6 +103,15 @@ export async function generateSEOReport(
           const kwLower = kw.toLowerCase();
           if (globalSeenKeywords.has(kwLower)) continue;
           globalSeenKeywords.add(kwLower);
+
+          // ─── EVALUATION GATE: filter at the door ───
+          const evaluation = evaluateKeyword(kw, bizCtx);
+          if (!evaluation.pass) {
+            totalFiltered++;
+            const reason = evaluation.reason || 'unknown';
+            filterReasons.set(reason, (filterReasons.get(reason) || 0) + 1);
+            continue; // Rejected — never enters any list
+          }
 
           const kwData = {
             keyword: kw,
@@ -111,12 +127,13 @@ export async function generateSEOReport(
 
           hubKeywords.push(kwData);
 
-          // If we don't currently rank for it, it's a net new opportunity
           if (!currentKeywords.has(kwLower)) {
+            const baseScore = calculateRelevanceScore(kwData.searchVolume, kwData.keywordDifficulty);
+            const brandScore = scoreRelevance(kw, bizCtx);
             allNetNew.push({
               ...kwData,
               source: 'suggestion',
-              relevanceScore: calculateRelevanceScore(kwData.searchVolume, kwData.keywordDifficulty),
+              relevanceScore: (baseScore * 0.5) + (brandScore * 0.5),
               hubTopic: hub.topic,
             });
           }
@@ -127,7 +144,7 @@ export async function generateSEOReport(
       warnings.push({ step: 'hub_suggestions', message: `Suggestions for hub "${hub.topic}" failed: ${msg}` });
     }
 
-    // Related keywords for this hub (API accepts a single keyword string)
+    // Related keywords for this hub
     try {
       const relatedResponse = await client.getRelatedKeywords(hub.topic, perHubLimit);
       const relatedResult = relatedResponse.tasks?.[0]?.result?.[0];
@@ -137,6 +154,15 @@ export async function generateSEOReport(
           const kwLower = kw.toLowerCase();
           if (globalSeenKeywords.has(kwLower)) continue;
           globalSeenKeywords.add(kwLower);
+
+          // ─── EVALUATION GATE ───
+          const evaluation = evaluateKeyword(kw, bizCtx);
+          if (!evaluation.pass) {
+            totalFiltered++;
+            const reason = evaluation.reason || 'unknown';
+            filterReasons.set(reason, (filterReasons.get(reason) || 0) + 1);
+            continue;
+          }
 
           const kwData = {
             keyword: kw,
@@ -153,10 +179,12 @@ export async function generateSEOReport(
           hubKeywords.push(kwData);
 
           if (!currentKeywords.has(kwLower)) {
+            const baseScore = calculateRelevanceScore(kwData.searchVolume, kwData.keywordDifficulty);
+            const brandScore = scoreRelevance(kw, bizCtx);
             allNetNew.push({
               ...kwData,
               source: 'related',
-              relevanceScore: calculateRelevanceScore(kwData.searchVolume, kwData.keywordDifficulty),
+              relevanceScore: (baseScore * 0.5) + (brandScore * 0.5),
               hubTopic: hub.topic,
             });
           }
@@ -188,7 +216,21 @@ export async function generateSEOReport(
     hubKeywordMap.set(hub.topic, hubKeywords);
   }
 
-  progress(`Hub research complete — ${allNetNew.length} net new keywords found`, 82);
+  const totalEvaluated = allNetNew.length + totalFiltered;
+  progress(`Hub research complete — ${allNetNew.length} relevant keywords kept, ${totalFiltered} noise filtered out of ${totalEvaluated} evaluated`, 82);
+
+  // Report filtering stats as a warning so the user can see what was removed
+  if (totalFiltered > 0) {
+    const topReasons = Array.from(filterReasons.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([reason, count]) => `${reason} (${count})`)
+      .join(', ');
+    warnings.push({
+      step: 'relevance_filter',
+      message: `Filtered ${totalFiltered} of ${totalEvaluated} keywords. Top reasons: ${topReasons}`,
+    });
+  }
 
   // If hub research produced fewer than expected, supplement with keywords_for_site
   if (allNetNew.length < 100 && currentRankings.length === 0) {
@@ -202,6 +244,10 @@ export async function generateSEOReport(
           if (globalSeenKeywords.has(kwLower)) continue;
           globalSeenKeywords.add(kwLower);
 
+          // Apply evaluation gate to supplemental keywords too
+          const evaluation = evaluateKeyword(item.keyword, bizCtx);
+          if (!evaluation.pass) continue;
+
           allNetNew.push({
             keyword: item.keyword,
             searchVolume: item.keyword_info.search_volume || 0,
@@ -212,7 +258,7 @@ export async function generateSEOReport(
               ? [item.search_intent_info.main_intent, ...(item.search_intent_info.foreign_intent || [])]
               : [],
             source: 'suggestion',
-            relevanceScore: 0.3,
+            relevanceScore: scoreRelevance(item.keyword, bizCtx) * 0.5 + 0.15,
           });
         }
       }
@@ -222,49 +268,22 @@ export async function generateSEOReport(
     }
   }
 
-  // Step 6: Build Hub & Spoke model from research results
+  // Step 7: Build Hub & Spoke model from research results
   progress('Building Hub & Spoke content strategy...', 85);
   const hubAndSpoke = buildHubAndSpoke(hubSeeds, hubKeywordMap, currentRankings);
-  progress('Hub & Spoke model built', 87);
+  progress('Hub & Spoke model built', 88);
 
-  // Step 7: Relevance filtering — remove noise keywords in batches
-  progress('Filtering irrelevant keywords...', 88);
-  const brandCtx = buildBrandContext(input);
-  let filteredOpportunities: KeywordOpportunity[];
-  let totalRemoved = 0;
-
-  // Process in batches of 250 for quality control
-  const BATCH_SIZE = 250;
-  const sortedRaw = allNetNew.sort((a, b) => b.relevanceScore - a.relevanceScore);
-  const allKept: KeywordOpportunity[] = [];
-
-  for (let batchStart = 0; batchStart < sortedRaw.length; batchStart += BATCH_SIZE) {
-    const batch = sortedRaw.slice(batchStart, batchStart + BATCH_SIZE);
-    const { kept, removed } = filterKeywordBatch(batch, brandCtx);
-    allKept.push(...kept);
-    totalRemoved += removed.length;
-  }
-
-  filteredOpportunities = allKept
+  // Step 8: Finalize net new (already filtered during discovery — just sort and cap)
+  const netNewOpportunities = allNetNew
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
     .slice(0, 500);
 
-  if (totalRemoved > 0) {
-    progress(`Filtered out ${totalRemoved} irrelevant keywords, keeping ${filteredOpportunities.length}`, 90);
-    warnings.push({
-      step: 'relevance_filter',
-      message: `Removed ${totalRemoved} keywords that didn't match brand context (industry, products, value proposition)`,
-    });
-  }
-
-  const netNewOpportunities = filteredOpportunities;
-
-  // Step 8: Content refresh suggestions
+  // Step 9: Content refresh suggestions
   progress('Generating content refresh suggestions...', 90);
   const contentRefreshSuggestions = generateContentRefreshSuggestions(currentRankings);
   progress('Content refresh analysis complete', 93);
 
-  // Step 9: Build summary
+  // Step 10: Build summary
   const summary = buildSummary(
     currentRankings,
     competitors,
@@ -290,7 +309,7 @@ export async function generateSEOReport(
   };
 }
 
-// ─── Data fetching helpers (unchanged) ───────────────────────────────
+// ─── Data fetching helpers ───────────────────────────────────────────
 
 async function fetchCurrentRankings(client: DataForSEOClient, domain: string): Promise<RankedKeyword[]> {
   const response = await client.getRankedKeywords(domain, 1000);

@@ -3,10 +3,20 @@ export interface SEOReportInput {
   valueProposition: string;
   dataforseoLogin: string;
   dataforseoPassword: string;
-  industry?: string;           // e.g. "webinar platform", "SaaS", "e-commerce"
-  negativeKeywords?: string[];  // terms that indicate irrelevant results
-  products?: string[];          // core products/services
-  targetAudience?: string;      // who the brand serves
+  // Business Context Brief — Product Definition
+  productCategory?: string;      // Specific category, e.g. "B2B webinar and virtual events platform"
+  products?: string[];            // Key products/services
+  // Business Context Brief — Buyer Definition
+  primaryBuyer?: string;          // e.g. "VP of Marketing at B2B enterprise companies"
+  buyingTriggers?: string;        // What triggers them to search for a solution
+  competitors?: string[];         // Direct competitors and alternatives
+  // Business Context Brief — Boundary Definition
+  productIsNot?: string;          // Thorough description of what this product is NOT
+  ambiguousTerms?: string;        // Terms with dual meanings + correct context
+  negativeKeywords?: string[];    // Explicit exclusion terms
+  // Legacy (mapped from older fields)
+  industry?: string;
+  targetAudience?: string;
   locationCode?: number; // default 2840 = United States
   languageCode?: string; // default "en"
 }
@@ -17,10 +27,14 @@ export interface SavedProject {
   name: string;
   domain: string;
   valueProposition: string;
-  industry: string;
-  negativeKeywords: string[];
+  productCategory: string;
   products: string[];
-  targetAudience: string;
+  primaryBuyer: string;
+  buyingTriggers: string;
+  competitors: string[];
+  productIsNot: string;
+  ambiguousTerms: string;
+  negativeKeywords: string[];
   createdAt: string;
   updatedAt: string;
 }

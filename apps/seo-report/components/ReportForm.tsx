@@ -15,14 +15,22 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
   const [dataforseoLogin, setDataforseoLogin] = useState('');
   const [dataforseoPassword, setDataforseoPassword] = useState('');
 
-  // Brand context fields
-  const [industry, setIndustry] = useState('');
-  const [negativeKeywords, setNegativeKeywords] = useState('');
+  // Business Context Brief — Product Definition
+  const [productCategory, setProductCategory] = useState('');
   const [products, setProducts] = useState('');
-  const [targetAudience, setTargetAudience] = useState('');
+
+  // Business Context Brief — Buyer Definition
+  const [primaryBuyer, setPrimaryBuyer] = useState('');
+  const [buyingTriggers, setBuyingTriggers] = useState('');
+  const [competitors, setCompetitors] = useState('');
+
+  // Business Context Brief — Boundary Definition
+  const [productIsNot, setProductIsNot] = useState('');
+  const [ambiguousTerms, setAmbiguousTerms] = useState('');
+  const [negativeKeywords, setNegativeKeywords] = useState('');
 
   // Project management
-  const [projects, setProjects] = useState<SavedProject[]>([]);
+  const [projectList, setProjectList] = useState<SavedProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -33,7 +41,6 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
   const [error, setError] = useState('');
   const [envCredsConfigured, setEnvCredsConfigured] = useState<boolean | null>(null);
   const [showManualCreds, setShowManualCreds] = useState(false);
-  const [showBrandContext, setShowBrandContext] = useState(true);
 
   useEffect(() => {
     fetch('/api/config')
@@ -42,18 +49,21 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
       .catch(() => setEnvCredsConfigured(false));
   }, []);
 
-  // Load projects from localStorage on mount
   useEffect(() => {
-    setProjects(loadProjects());
+    setProjectList(loadProjects());
   }, []);
 
   const loadProjectIntoForm = useCallback((project: SavedProject) => {
     setDomain(project.domain);
     setValueProposition(project.valueProposition);
-    setIndustry(project.industry);
-    setNegativeKeywords(project.negativeKeywords.join(', '));
+    setProductCategory(project.productCategory || '');
     setProducts(project.products.join(', '));
-    setTargetAudience(project.targetAudience);
+    setPrimaryBuyer(project.primaryBuyer || '');
+    setBuyingTriggers(project.buyingTriggers || '');
+    setCompetitors(project.competitors?.join(', ') || '');
+    setProductIsNot(project.productIsNot || '');
+    setAmbiguousTerms(project.ambiguousTerms || '');
+    setNegativeKeywords(project.negativeKeywords.join(', '));
     setActiveProjectId(project.id);
     setProjectName(project.name);
   }, []);
@@ -65,24 +75,28 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
       name,
       domain,
       valueProposition,
-      industry,
-      negativeKeywords: negativeKeywords.split(',').map(s => s.trim()).filter(Boolean),
+      productCategory,
       products: products.split(',').map(s => s.trim()).filter(Boolean),
-      targetAudience,
+      primaryBuyer,
+      buyingTriggers,
+      competitors: competitors.split(',').map(s => s.trim()).filter(Boolean),
+      productIsNot,
+      ambiguousTerms,
+      negativeKeywords: negativeKeywords.split(',').map(s => s.trim()).filter(Boolean),
       createdAt: activeProjectId
-        ? projects.find(p => p.id === activeProjectId)?.createdAt || new Date().toISOString()
+        ? projectList.find(p => p.id === activeProjectId)?.createdAt || new Date().toISOString()
         : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     saveProject(project);
-    setProjects(loadProjects());
+    setProjectList(loadProjects());
     setActiveProjectId(project.id);
     setShowSaveDialog(false);
   };
 
   const handleDeleteProject = (id: string) => {
     deleteProject(id);
-    setProjects(loadProjects());
+    setProjectList(loadProjects());
     if (activeProjectId === id) setActiveProjectId(null);
   };
 
@@ -96,14 +110,20 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
       const payload: Record<string, unknown> = { domain, valueProposition };
       if (dataforseoLogin) payload.dataforseoLogin = dataforseoLogin;
       if (dataforseoPassword) payload.dataforseoPassword = dataforseoPassword;
-      if (industry) payload.industry = industry;
-      if (targetAudience) payload.targetAudience = targetAudience;
-
-      const negKw = negativeKeywords.split(',').map(s => s.trim()).filter(Boolean);
-      if (negKw.length > 0) payload.negativeKeywords = negKw;
+      if (productCategory) payload.productCategory = productCategory;
+      if (primaryBuyer) payload.primaryBuyer = primaryBuyer;
+      if (buyingTriggers) payload.buyingTriggers = buyingTriggers;
+      if (productIsNot) payload.productIsNot = productIsNot;
+      if (ambiguousTerms) payload.ambiguousTerms = ambiguousTerms;
 
       const prodList = products.split(',').map(s => s.trim()).filter(Boolean);
       if (prodList.length > 0) payload.products = prodList;
+
+      const compList = competitors.split(',').map(s => s.trim()).filter(Boolean);
+      if (compList.length > 0) payload.competitors = compList;
+
+      const negKw = negativeKeywords.split(',').map(s => s.trim()).filter(Boolean);
+      if (negKw.length > 0) payload.negativeKeywords = negKw;
 
       const res = await fetch('/api/analyze', {
         method: 'POST',
@@ -164,11 +184,11 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
   return (
     <div className="space-y-4">
       {/* Saved Projects */}
-      {projects.length > 0 && (
+      {projectList.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <h3 className="text-sm font-semibold text-gray-900 mb-3">Saved Projects</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {projects.map(p => (
+            {projectList.map(p => (
               <div
                 key={p.id}
                 className={`border rounded-md p-3 cursor-pointer transition-colors ${
@@ -233,138 +253,129 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
                 placeholder={`${domain} - SEO Report`}
                 className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
-              <button
-                type="button"
-                onClick={handleSaveProject}
-                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSaveDialog(false)}
-                className="px-3 py-1.5 text-sm bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200"
-              >
-                Cancel
-              </button>
+              <button type="button" onClick={handleSaveProject}
+                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">Save</button>
+              <button type="button" onClick={() => setShowSaveDialog(false)}
+                className="px-3 py-1.5 text-sm bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200">Cancel</button>
             </div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Domain */}
           <div>
-            <label htmlFor="domain" className="block text-sm font-medium text-gray-700 mb-1">
-              Client Domain
-            </label>
-            <input
-              id="domain"
-              type="text"
-              value={domain}
-              onChange={e => setDomain(e.target.value)}
-              placeholder="example.com"
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
-            <p className="text-xs text-gray-500 mt-1">Enter domain without http:// or trailing slash</p>
+            <label htmlFor="domain" className="block text-sm font-medium text-gray-700 mb-1">Client Domain</label>
+            <input id="domain" type="text" value={domain} onChange={e => setDomain(e.target.value)}
+              placeholder="example.com" required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
+            <p className="text-xs text-gray-500 mt-1">Without http:// or trailing slash</p>
           </div>
 
+          {/* Value Proposition */}
           <div>
-            <label htmlFor="valueProposition" className="block text-sm font-medium text-gray-700 mb-1">
-              Value Proposition
-            </label>
-            <textarea
-              id="valueProposition"
-              value={valueProposition}
-              onChange={e => setValueProposition(e.target.value)}
-              placeholder="Describe what the client does, their target audience, key services/products, and what makes them unique..."
-              required
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <label htmlFor="valueProposition" className="block text-sm font-medium text-gray-700 mb-1">Value Proposition</label>
+            <textarea id="valueProposition" value={valueProposition} onChange={e => setValueProposition(e.target.value)}
+              placeholder="What the client does, their target audience, key services/products, what makes them unique..."
+              required rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
           </div>
 
-          {/* Brand Context Section */}
-          <div className="border border-gray-200 rounded-md">
-            <button
-              type="button"
-              onClick={() => setShowBrandContext(!showBrandContext)}
-              className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <span>Brand Context &amp; Noise Filtering</span>
-              <span className="text-gray-400 text-xs">
-                {showBrandContext ? 'Hide' : 'Show'} {industry || negativeKeywords || products || targetAudience ? '(configured)' : '(recommended)'}
-              </span>
-            </button>
-            {showBrandContext && (
-              <div className="px-4 pb-4 space-y-3 border-t border-gray-200 pt-3">
-                <p className="text-xs text-gray-500">
-                  These fields help filter out irrelevant keywords. For example, if your client is a webinar platform called &ldquo;Sequel&rdquo;,
-                  add &ldquo;movie&rdquo;, &ldquo;film&rdquo;, &ldquo;cinema&rdquo; as negative keywords to exclude movie sequel results.
-                </p>
+          {/* ═══ BUSINESS CONTEXT BRIEF ═══ */}
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-900">Business Context Brief</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                The more detail you provide, the better the noise filter works. The &ldquo;What this product is NOT&rdquo; field is the single most impactful field for filtering irrelevant keywords.
+              </p>
+            </div>
 
+            <div className="p-4 space-y-4">
+              {/* Section 1: Product Definition */}
+              <div>
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Product Definition</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label htmlFor="industry" className="block text-sm font-medium text-gray-700 mb-1">
-                      Industry / Niche
-                    </label>
-                    <input
-                      id="industry"
-                      type="text"
-                      value={industry}
-                      onChange={e => setIndustry(e.target.value)}
-                      placeholder="e.g. webinar platform, B2B SaaS, e-commerce"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm"
-                    />
+                    <label htmlFor="productCategory" className="block text-sm font-medium text-gray-700 mb-1">Product Category</label>
+                    <input id="productCategory" type="text" value={productCategory} onChange={e => setProductCategory(e.target.value)}
+                      placeholder="e.g. B2B webinar and virtual events platform"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <p className="text-xs text-gray-400 mt-0.5">Be specific — &ldquo;B2B webinar platform&rdquo; not &ldquo;events&rdquo;</p>
                   </div>
                   <div>
-                    <label htmlFor="targetAudience" className="block text-sm font-medium text-gray-700 mb-1">
-                      Target Audience
-                    </label>
-                    <input
-                      id="targetAudience"
-                      type="text"
-                      value={targetAudience}
-                      onChange={e => setTargetAudience(e.target.value)}
-                      placeholder="e.g. marketing teams, enterprise companies, small businesses"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm"
-                    />
+                    <label htmlFor="products" className="block text-sm font-medium text-gray-700 mb-1">Key Products / Services</label>
+                    <input id="products" type="text" value={products} onChange={e => setProducts(e.target.value)}
+                      placeholder="e.g. live webinars, on-demand video, virtual events"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <p className="text-xs text-gray-400 mt-0.5">Comma-separated</p>
                   </div>
                 </div>
+              </div>
 
-                <div>
-                  <label htmlFor="products" className="block text-sm font-medium text-gray-700 mb-1">
-                    Key Products / Services
-                  </label>
-                  <input
-                    id="products"
-                    type="text"
-                    value={products}
-                    onChange={e => setProducts(e.target.value)}
-                    placeholder="e.g. live webinars, on-demand video, virtual events (comma separated)"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm"
-                  />
-                  <p className="text-xs text-gray-500 mt-0.5">Comma-separated list</p>
+              {/* Section 2: Buyer Definition */}
+              <div>
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Buyer Definition</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="primaryBuyer" className="block text-sm font-medium text-gray-700 mb-1">Primary Buyer</label>
+                    <input id="primaryBuyer" type="text" value={primaryBuyer} onChange={e => setPrimaryBuyer(e.target.value)}
+                      placeholder="e.g. VP of Marketing at B2B enterprise companies"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <p className="text-xs text-gray-400 mt-0.5">Job title + function, not &ldquo;marketers&rdquo;</p>
+                  </div>
+                  <div>
+                    <label htmlFor="competitors" className="block text-sm font-medium text-gray-700 mb-1">Competitors / Alternatives</label>
+                    <input id="competitors" type="text" value={competitors} onChange={e => setCompetitors(e.target.value)}
+                      placeholder="e.g. Zoom Webinars, GoTo Webinar, ON24"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <p className="text-xs text-gray-400 mt-0.5">Comma-separated — used to filter competitor navigational queries</p>
+                  </div>
                 </div>
-
-                <div>
-                  <label htmlFor="negativeKeywords" className="block text-sm font-medium text-gray-700 mb-1">
-                    Negative Keywords
-                  </label>
-                  <input
-                    id="negativeKeywords"
-                    type="text"
-                    value={negativeKeywords}
-                    onChange={e => setNegativeKeywords(e.target.value)}
-                    placeholder="e.g. movie, film, cinema, recipe (comma separated)"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm"
-                  />
-                  <p className="text-xs text-gray-500 mt-0.5">Terms that indicate irrelevant results — keywords matching these will be excluded</p>
+                <div className="mt-3">
+                  <label htmlFor="buyingTriggers" className="block text-sm font-medium text-gray-700 mb-1">Buying Triggers</label>
+                  <input id="buyingTriggers" type="text" value={buyingTriggers} onChange={e => setBuyingTriggers(e.target.value)}
+                    placeholder="e.g. Need to host customer webinars, scale virtual events, replace in-person conferences"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
                 </div>
               </div>
-            )}
+
+              {/* Section 3: Boundary Definition — THE CRITICAL SECTION */}
+              <div>
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Boundary Definition</h4>
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-3 mb-3">
+                  <p className="text-xs text-amber-800">
+                    <strong>This is the most important section.</strong> Be thorough about what the product is NOT. List every adjacent category, tool, or concept that shares vocabulary with your product but serves a different buyer. This is your primary noise filter.
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="productIsNot" className="block text-sm font-medium text-gray-700 mb-1">What This Product is NOT</label>
+                  <textarea id="productIsNot" value={productIsNot} onChange={e => setProductIsNot(e.target.value)}
+                    placeholder={"Example for a B2B webinar platform called Sequel:\n\nThis is NOT a consumer streaming service, NOT a video conferencing tool for internal meetings, NOT an event venue or ticketing platform, NOT a virtual reality product, NOT a database or programming language (SQL), NOT an entertainment franchise or movie sequel."}
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+
+                <div className="mt-3">
+                  <label htmlFor="ambiguousTerms" className="block text-sm font-medium text-gray-700 mb-1">Ambiguous Terms</label>
+                  <textarea id="ambiguousTerms" value={ambiguousTerms} onChange={e => setAmbiguousTerms(e.target.value)}
+                    placeholder={"sequel = company name, not movie sequels or SQL databases;\nvirtual events = online B2B marketing events, not VR or virtual assistants;\nlive = live-streamed business events, not live sports or live music"}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <p className="text-xs text-gray-400 mt-0.5">Format: term = correct meaning, not wrong meaning (semicolon-separated)</p>
+                </div>
+
+                <div className="mt-3">
+                  <label htmlFor="negativeKeywords" className="block text-sm font-medium text-gray-700 mb-1">Negative Keywords</label>
+                  <input id="negativeKeywords" type="text" value={negativeKeywords} onChange={e => setNegativeKeywords(e.target.value)}
+                    placeholder="e.g. movie, film, cinema, recipe, sql query"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <p className="text-xs text-gray-400 mt-0.5">Comma-separated — any keyword containing these terms will be excluded</p>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Credentials section */}
+          {/* Credentials */}
           {envCredsConfigured === null ? (
             <p className="text-xs text-gray-400">Checking API configuration...</p>
           ) : envCredsConfigured && !showManualCreds ? (
@@ -373,61 +384,30 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
                 <p className="text-sm font-medium text-green-800">DataForSEO API key configured</p>
                 <p className="text-xs text-green-600">Using credentials from environment variables</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowManualCreds(true)}
-                className="text-xs text-green-700 underline hover:text-green-900"
-              >
-                Override
-              </button>
+              <button type="button" onClick={() => setShowManualCreds(true)}
+                className="text-xs text-green-700 underline hover:text-green-900">Override</button>
             </div>
           ) : (
             <div className="space-y-3">
               {envCredsConfigured && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowManualCreds(false);
-                    setDataforseoLogin('');
-                    setDataforseoPassword('');
-                  }}
-                  className="text-xs text-blue-600 underline hover:text-blue-800"
-                >
-                  Use environment variables instead
-                </button>
+                <button type="button" onClick={() => { setShowManualCreds(false); setDataforseoLogin(''); setDataforseoPassword(''); }}
+                  className="text-xs text-blue-600 underline hover:text-blue-800">Use environment variables instead</button>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="login" className="block text-sm font-medium text-gray-700 mb-1">
-                    DataForSEO Login (email)
-                  </label>
-                  <input
-                    id="login"
-                    type="text"
-                    value={dataforseoLogin}
-                    onChange={e => setDataforseoLogin(e.target.value)}
-                    placeholder="your@email.com"
-                    required={!envCredsConfigured}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  />
+                  <label htmlFor="login" className="block text-sm font-medium text-gray-700 mb-1">DataForSEO Login (email)</label>
+                  <input id="login" type="text" value={dataforseoLogin} onChange={e => setDataforseoLogin(e.target.value)}
+                    placeholder="your@email.com" required={!envCredsConfigured}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
                 </div>
                 <div>
-                  <label htmlFor="apiKey" className="block text-sm font-medium text-gray-700 mb-1">
-                    DataForSEO API Key
-                  </label>
-                  <input
-                    id="apiKey"
-                    type="password"
-                    value={dataforseoPassword}
-                    onChange={e => setDataforseoPassword(e.target.value)}
-                    placeholder="Your API key from the DataForSEO dashboard"
-                    required={!envCredsConfigured}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  />
+                  <label htmlFor="apiKey" className="block text-sm font-medium text-gray-700 mb-1">DataForSEO API Key</label>
+                  <input id="apiKey" type="password" value={dataforseoPassword} onChange={e => setDataforseoPassword(e.target.value)}
+                    placeholder="Your API key" required={!envCredsConfigured}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
                 </div>
               </div>
               <p className="text-xs text-gray-500">
-                Find these in your <span className="font-medium">DataForSEO dashboard &rarr; API Access</span>.
                 Or set <code className="bg-gray-100 px-1 rounded">DATAFORSEO_LOGIN</code> and <code className="bg-gray-100 px-1 rounded">DATAFORSEO_API_KEY</code> in your .env file.
               </p>
             </div>
@@ -439,11 +419,8 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-md font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-          >
+          <button type="submit" disabled={loading}
+            className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-md font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm">
             {loading ? 'Analyzing...' : 'Generate SEO Report'}
           </button>
 
@@ -454,10 +431,7 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
                 <span>{progress.pct}%</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${progress.pct}%` }}
-                />
+                <div className="bg-blue-600 h-2 rounded-full transition-all duration-500" style={{ width: `${progress.pct}%` }} />
               </div>
             </div>
           )}
