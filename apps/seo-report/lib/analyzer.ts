@@ -8,8 +8,9 @@ import type {
   KeywordOpportunity,
   ContentRefreshSuggestion,
   ReportSummary,
+  HubTopic,
 } from './types';
-import { buildHubAndSpoke } from './hub-spoke';
+import { deriveHubSeeds, buildHubAndSpoke, type HubSeed } from './hub-spoke';
 
 /** Warnings collected during analysis (non-fatal issues) */
 export interface AnalysisWarning {
@@ -31,7 +32,7 @@ export async function generateSEOReport(
 
   const progress = (step: string, pct: number) => onProgress?.(step, pct);
 
-  // Step 0: Verify credentials before burning time on a full pipeline
+  // Step 0: Verify credentials
   progress('Verifying DataForSEO credentials...', 2);
   await client.verifyCredentials();
   progress('Credentials verified', 5);
@@ -39,50 +40,202 @@ export async function generateSEOReport(
   // Step 1: Get current rankings
   progress('Fetching current rankings...', 8);
   const currentRankings = await fetchCurrentRankings(client, input.domain);
-  progress(`Current rankings loaded (${currentRankings.length} keywords)`, 20);
+  progress(`Current rankings loaded (${currentRankings.length} keywords)`, 15);
 
   // Step 2: Get competitors
-  progress('Identifying top competitors...', 25);
+  progress('Identifying top competitors...', 18);
   const competitors = await fetchCompetitors(client, input.domain);
-  progress('Competitors identified', 35);
+  progress('Competitors identified', 22);
 
   // Step 3: Get competitor keyword gaps
-  progress('Analyzing competitor keyword gaps...', 40);
+  progress('Analyzing competitor keyword gaps...', 25);
   const competitorKeywords = await fetchCompetitorGaps(client, input.domain, competitors.slice(0, 3), warnings);
-  progress(`Competitor analysis complete (${competitorKeywords.length} gap keywords)`, 55);
+  progress(`Competitor analysis complete (${competitorKeywords.length} gap keywords)`, 35);
 
-  // Step 4: Get net new keyword opportunities
-  progress('Discovering net new keyword opportunities...', 60);
-  const netNewOpportunities = await fetchNetNewOpportunities(client, input.domain, currentRankings, warnings);
-  progress(`Keyword opportunities found (${netNewOpportunities.length})`, 75);
+  // Step 4: DERIVE HUB TOPICS from value proposition + current rankings
+  progress('Deriving hub topics from value proposition...', 38);
+  const hubSeeds = deriveHubSeeds(input.valueProposition, currentRankings);
+  progress(`Identified ${hubSeeds.length} hub topics — starting targeted research`, 40);
 
-  // Step 5: Generate content refresh suggestions
-  progress('Generating content refresh suggestions...', 80);
+  // Step 5: PER-HUB KEYWORD RESEARCH — this is where the 500 net new come from
+  const currentKeywords = new Set(currentRankings.map(k => k.keyword.toLowerCase()));
+  const hubKeywordMap = new Map<string, {
+    keyword: string;
+    searchVolume: number;
+    keywordDifficulty: number;
+    cpc: number;
+    competition: number;
+    intent: string[];
+    currentRanking: number | null;
+  }[]>();
+  const allNetNew: KeywordOpportunity[] = [];
+  const globalSeenKeywords = new Set<string>();
+
+  // Budget: ~50 keywords per hub to reach 500+ total across 10-12 hubs
+  const perHubLimit = Math.max(40, Math.ceil(550 / Math.max(hubSeeds.length, 1)));
+
+  for (let i = 0; i < hubSeeds.length; i++) {
+    const hub = hubSeeds[i];
+    const pctBase = 42 + Math.round((i / hubSeeds.length) * 40);
+    progress(`Researching hub ${i + 1}/${hubSeeds.length}: "${hub.topic}"...`, pctBase);
+
+    const hubKeywords: typeof hubKeywordMap extends Map<string, infer V> ? V : never = [];
+
+    // Build seed list for this hub: topic phrase + any matching existing keywords
+    const seeds = [hub.topic, ...hub.seedKeywords].slice(0, 10);
+
+    // Keyword suggestions for this hub
+    try {
+      const suggestionsResponse = await client.getKeywordSuggestions(seeds, perHubLimit);
+      const suggestionsResult = suggestionsResponse.tasks?.[0]?.result?.[0];
+      if (suggestionsResult?.items) {
+        for (const item of suggestionsResult.items) {
+          const kw = item.keyword_data.keyword;
+          const kwLower = kw.toLowerCase();
+          if (globalSeenKeywords.has(kwLower)) continue;
+          globalSeenKeywords.add(kwLower);
+
+          const kwData = {
+            keyword: kw,
+            searchVolume: item.keyword_data.keyword_info.search_volume || 0,
+            keywordDifficulty: item.keyword_data.keyword_properties?.keyword_difficulty || 0,
+            cpc: item.keyword_data.keyword_info.cpc || 0,
+            competition: item.keyword_data.keyword_info.competition || 0,
+            intent: item.keyword_data.search_intent_info
+              ? [item.keyword_data.search_intent_info.main_intent, ...(item.keyword_data.search_intent_info.foreign_intent || [])]
+              : [],
+            currentRanking: null as number | null,
+          };
+
+          hubKeywords.push(kwData);
+
+          // If we don't currently rank for it, it's a net new opportunity
+          if (!currentKeywords.has(kwLower)) {
+            allNetNew.push({
+              ...kwData,
+              source: 'suggestion',
+              relevanceScore: calculateRelevanceScore(kwData.searchVolume, kwData.keywordDifficulty),
+              hubTopic: hub.topic,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      warnings.push({ step: 'hub_suggestions', message: `Suggestions for hub "${hub.topic}" failed: ${msg}` });
+    }
+
+    // Related keywords for this hub
+    try {
+      const relatedResponse = await client.getRelatedKeywords(seeds.slice(0, 5), perHubLimit);
+      const relatedResult = relatedResponse.tasks?.[0]?.result?.[0];
+      if (relatedResult?.items) {
+        for (const item of relatedResult.items) {
+          const kw = item.keyword_data.keyword;
+          const kwLower = kw.toLowerCase();
+          if (globalSeenKeywords.has(kwLower)) continue;
+          globalSeenKeywords.add(kwLower);
+
+          const kwData = {
+            keyword: kw,
+            searchVolume: item.keyword_data.keyword_info.search_volume || 0,
+            keywordDifficulty: item.keyword_data.keyword_properties?.keyword_difficulty || 0,
+            cpc: item.keyword_data.keyword_info.cpc || 0,
+            competition: item.keyword_data.keyword_info.competition || 0,
+            intent: item.keyword_data.search_intent_info
+              ? [item.keyword_data.search_intent_info.main_intent, ...(item.keyword_data.search_intent_info.foreign_intent || [])]
+              : [],
+            currentRanking: null as number | null,
+          };
+
+          hubKeywords.push(kwData);
+
+          if (!currentKeywords.has(kwLower)) {
+            allNetNew.push({
+              ...kwData,
+              source: 'related',
+              relevanceScore: calculateRelevanceScore(kwData.searchVolume, kwData.keywordDifficulty),
+              hubTopic: hub.topic,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      warnings.push({ step: 'hub_related', message: `Related keywords for hub "${hub.topic}" failed: ${msg}` });
+    }
+
+    // Also include any current rankings that match this hub topic
+    for (const r of currentRankings) {
+      const kwLower = r.keyword.toLowerCase();
+      if (globalSeenKeywords.has(kwLower)) continue;
+      if (!kwLower.includes(hub.topic.toLowerCase())) continue;
+      globalSeenKeywords.add(kwLower);
+
+      hubKeywords.push({
+        keyword: r.keyword,
+        searchVolume: r.searchVolume,
+        keywordDifficulty: r.keywordDifficulty,
+        cpc: r.cpc,
+        competition: r.competition,
+        intent: r.intent,
+        currentRanking: r.position,
+      });
+    }
+
+    hubKeywordMap.set(hub.topic, hubKeywords);
+  }
+
+  progress(`Hub research complete — ${allNetNew.length} net new keywords found`, 82);
+
+  // If hub research produced fewer than expected, supplement with keywords_for_site
+  if (allNetNew.length < 100 && currentRankings.length === 0) {
+    progress('Supplementing with site-level keyword discovery...', 83);
+    try {
+      const siteKwResponse = await client.getKeywordsForSite(input.domain, 200);
+      const siteResult = siteKwResponse.tasks?.[0]?.result?.[0];
+      if (siteResult?.items) {
+        for (const item of siteResult.items) {
+          const kwLower = item.keyword.toLowerCase();
+          if (globalSeenKeywords.has(kwLower)) continue;
+          globalSeenKeywords.add(kwLower);
+
+          allNetNew.push({
+            keyword: item.keyword,
+            searchVolume: item.keyword_info.search_volume || 0,
+            cpc: item.keyword_info.cpc || 0,
+            competition: item.keyword_info.competition || 0,
+            keywordDifficulty: item.keyword_properties?.keyword_difficulty || 0,
+            intent: item.search_intent_info
+              ? [item.search_intent_info.main_intent, ...(item.search_intent_info.foreign_intent || [])]
+              : [],
+            source: 'suggestion',
+            relevanceScore: 0.3,
+          });
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      warnings.push({ step: 'site_keywords', message: `Site keyword fallback failed: ${msg}` });
+    }
+  }
+
+  // Step 6: Build Hub & Spoke model from research results
+  progress('Building Hub & Spoke content strategy...', 85);
+  const hubAndSpoke = buildHubAndSpoke(hubSeeds, hubKeywordMap, currentRankings);
+  progress('Hub & Spoke model built', 88);
+
+  // Step 7: Finalize net new opportunities (sorted by relevance, capped at 500)
+  const netNewOpportunities = allNetNew
+    .sort((a, b) => b.relevanceScore - a.relevanceScore)
+    .slice(0, 500);
+
+  // Step 8: Content refresh suggestions
+  progress('Generating content refresh suggestions...', 90);
   const contentRefreshSuggestions = generateContentRefreshSuggestions(currentRankings);
-  progress('Content refresh analysis complete', 85);
+  progress('Content refresh analysis complete', 93);
 
-  // Step 6: Build Hub & Spoke model
-  progress('Building Hub & Spoke topic clusters...', 88);
-  const allKeywords = [
-    ...currentRankings.map(k => ({
-      keyword: k.keyword,
-      searchVolume: k.searchVolume,
-      keywordDifficulty: k.keywordDifficulty,
-      intent: k.intent,
-      currentRanking: k.position,
-    })),
-    ...netNewOpportunities.map(k => ({
-      keyword: k.keyword,
-      searchVolume: k.searchVolume,
-      keywordDifficulty: k.keywordDifficulty,
-      intent: k.intent,
-      currentRanking: null as number | null,
-    })),
-  ];
-  const hubAndSpoke = buildHubAndSpoke(allKeywords, input.valueProposition);
-  progress('Hub & Spoke model built', 95);
-
-  // Step 7: Build summary
+  // Step 9: Build summary
   const summary = buildSummary(
     currentRankings,
     competitors,
@@ -101,20 +254,19 @@ export async function generateSEOReport(
     currentRankings: currentRankings.slice(0, 200),
     competitors,
     competitorKeywords: competitorKeywords.slice(0, 200),
-    netNewOpportunities: netNewOpportunities.slice(0, 500),
+    netNewOpportunities,
     contentRefreshSuggestions,
     hubAndSpoke,
     warnings,
   };
 }
 
+// ─── Data fetching helpers (unchanged) ───────────────────────────────
+
 async function fetchCurrentRankings(client: DataForSEOClient, domain: string): Promise<RankedKeyword[]> {
   const response = await client.getRankedKeywords(domain, 1000);
   const result = response.tasks?.[0]?.result?.[0];
   if (!result?.items || result.items.length === 0) {
-    // This is expected for brand-new domains with no organic presence.
-    // Return empty but don't throw — the rest of the pipeline can still
-    // find opportunities via keywords_for_site fallback.
     return [];
   }
 
@@ -192,7 +344,6 @@ async function fetchCompetitorGaps(
     }
   }
 
-  // Deduplicate by keyword, keeping highest-volume entries
   const seen = new Map<string, CompetitorKeyword>();
   for (const gap of allGaps) {
     const existing = seen.get(gap.keyword);
@@ -204,116 +355,9 @@ async function fetchCompetitorGaps(
   return Array.from(seen.values()).sort((a, b) => b.searchVolume - a.searchVolume);
 }
 
-async function fetchNetNewOpportunities(
-  client: DataForSEOClient,
-  domain: string,
-  currentRankings: RankedKeyword[],
-  warnings: AnalysisWarning[]
-): Promise<KeywordOpportunity[]> {
-  const currentKeywords = new Set(currentRankings.map(k => k.keyword.toLowerCase()));
-
-  // Extract seed keywords from top-performing rankings
-  const seedKeywords = currentRankings
-    .filter(k => k.position <= 20 && k.searchVolume > 100)
-    .sort((a, b) => b.searchVolume - a.searchVolume)
-    .slice(0, 20)
-    .map(k => k.keyword);
-
-  if (seedKeywords.length === 0) {
-    // Fallback: use keywords for site if no current rankings
-    const siteKwResponse = await client.getKeywordsForSite(domain, 500);
-    const siteResult = siteKwResponse.tasks?.[0]?.result?.[0];
-    if (!siteResult?.items) return [];
-
-    return siteResult.items
-      .filter(item => !currentKeywords.has(item.keyword.toLowerCase()))
-      .map(item => ({
-        keyword: item.keyword,
-        searchVolume: item.keyword_info.search_volume || 0,
-        cpc: item.keyword_info.cpc || 0,
-        competition: item.keyword_info.competition || 0,
-        keywordDifficulty: item.keyword_properties?.keyword_difficulty || 0,
-        intent: item.search_intent_info
-          ? [item.search_intent_info.main_intent, ...(item.search_intent_info.foreign_intent || [])]
-          : [],
-        source: 'suggestion' as const,
-        relevanceScore: 0.5,
-      }))
-      .slice(0, 500);
-  }
-
-  const opportunities: KeywordOpportunity[] = [];
-
-  // Fetch keyword suggestions
-  try {
-    const suggestionsResponse = await client.getKeywordSuggestions(seedKeywords, 300);
-    const suggestionsResult = suggestionsResponse.tasks?.[0]?.result?.[0];
-    if (suggestionsResult?.items) {
-      for (const item of suggestionsResult.items) {
-        if (!currentKeywords.has(item.keyword_data.keyword.toLowerCase())) {
-          opportunities.push({
-            keyword: item.keyword_data.keyword,
-            searchVolume: item.keyword_data.keyword_info.search_volume || 0,
-            cpc: item.keyword_data.keyword_info.cpc || 0,
-            competition: item.keyword_data.keyword_info.competition || 0,
-            keywordDifficulty: item.keyword_data.keyword_properties?.keyword_difficulty || 0,
-            intent: item.keyword_data.search_intent_info
-              ? [item.keyword_data.search_intent_info.main_intent, ...(item.keyword_data.search_intent_info.foreign_intent || [])]
-              : [],
-            source: 'suggestion',
-            relevanceScore: calculateRelevanceScore(item.keyword_data.keyword_info.search_volume || 0, item.keyword_data.keyword_properties?.keyword_difficulty || 0),
-          });
-        }
-      }
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    warnings.push({ step: 'keyword_suggestions', message: `Keyword suggestions failed: ${msg}` });
-  }
-
-  // Fetch related keywords
-  try {
-    const relatedResponse = await client.getRelatedKeywords(seedKeywords.slice(0, 10), 200);
-    const relatedResult = relatedResponse.tasks?.[0]?.result?.[0];
-    if (relatedResult?.items) {
-      for (const item of relatedResult.items) {
-        if (!currentKeywords.has(item.keyword_data.keyword.toLowerCase())) {
-          opportunities.push({
-            keyword: item.keyword_data.keyword,
-            searchVolume: item.keyword_data.keyword_info.search_volume || 0,
-            cpc: item.keyword_data.keyword_info.cpc || 0,
-            competition: item.keyword_data.keyword_info.competition || 0,
-            keywordDifficulty: item.keyword_data.keyword_properties?.keyword_difficulty || 0,
-            intent: item.keyword_data.search_intent_info
-              ? [item.keyword_data.search_intent_info.main_intent, ...(item.keyword_data.search_intent_info.foreign_intent || [])]
-              : [],
-            source: 'related',
-            relevanceScore: calculateRelevanceScore(item.keyword_data.keyword_info.search_volume || 0, item.keyword_data.keyword_properties?.keyword_difficulty || 0),
-          });
-        }
-      }
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    warnings.push({ step: 'related_keywords', message: `Related keywords failed: ${msg}` });
-  }
-
-  // Deduplicate
-  const seen = new Set<string>();
-  const deduped = opportunities.filter(k => {
-    const key = k.keyword.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  return deduped
-    .sort((a, b) => b.relevanceScore - a.relevanceScore)
-    .slice(0, 500);
-}
+// ─── Scoring & analysis helpers ──────────────────────────────────────
 
 function calculateRelevanceScore(searchVolume: number, difficulty: number): number {
-  // Higher volume + lower difficulty = higher relevance
   const volumeScore = Math.min(searchVolume / 10000, 1);
   const difficultyScore = 1 - (difficulty / 100);
   return (volumeScore * 0.6) + (difficultyScore * 0.4);
@@ -323,7 +367,6 @@ function generateContentRefreshSuggestions(rankings: RankedKeyword[]): ContentRe
   const suggestions: ContentRefreshSuggestion[] = [];
 
   for (const kw of rankings) {
-    // Pages ranking 4-10 (bottom of page 1) - high priority optimize
     if (kw.position >= 4 && kw.position <= 10 && kw.searchVolume >= 100) {
       suggestions.push({
         keyword: kw.keyword,
@@ -337,7 +380,6 @@ function generateContentRefreshSuggestions(rankings: RankedKeyword[]): ContentRe
       });
     }
 
-    // Pages ranking 11-20 (page 2) - medium priority expand
     if (kw.position >= 11 && kw.position <= 20 && kw.searchVolume >= 200) {
       suggestions.push({
         keyword: kw.keyword,
@@ -351,7 +393,6 @@ function generateContentRefreshSuggestions(rankings: RankedKeyword[]): ContentRe
       });
     }
 
-    // Pages ranking 21-50 - add sections
     if (kw.position >= 21 && kw.position <= 50 && kw.searchVolume >= 500) {
       suggestions.push({
         keyword: kw.keyword,
@@ -366,7 +407,6 @@ function generateContentRefreshSuggestions(rankings: RankedKeyword[]): ContentRe
     }
   }
 
-  // Group by URL and keep highest-impact suggestion per URL
   const byUrl = new Map<string, ContentRefreshSuggestion[]>();
   for (const s of suggestions) {
     const list = byUrl.get(s.url) || [];
@@ -374,7 +414,6 @@ function generateContentRefreshSuggestions(rankings: RankedKeyword[]): ContentRe
     byUrl.set(s.url, list);
   }
 
-  // Return top suggestion per URL, sorted by potential traffic
   const result: ContentRefreshSuggestion[] = [];
   for (const [, urlSuggestions] of byUrl) {
     urlSuggestions.sort((a, b) => b.potentialTraffic - a.potentialTraffic);
@@ -385,7 +424,6 @@ function generateContentRefreshSuggestions(rankings: RankedKeyword[]): ContentRe
 }
 
 function estimateTrafficGain(searchVolume: number, currentPosition: number, targetPosition: number): number {
-  // Approximate CTR by position (Google organic)
   const ctrByPosition: Record<number, number> = {
     1: 0.316, 2: 0.241, 3: 0.186, 4: 0.113, 5: 0.095,
     6: 0.062, 7: 0.042, 8: 0.032, 9: 0.028, 10: 0.024,
@@ -400,7 +438,7 @@ function buildSummary(
   competitors: CompetitorDomain[],
   netNew: KeywordOpportunity[],
   refreshSuggestions: ContentRefreshSuggestion[],
-  hubAndSpoke: import('./types').HubTopic[]
+  hubAndSpoke: HubTopic[]
 ): ReportSummary {
   const totalTraffic = currentRankings.reduce((sum, k) => sum + k.estimatedTraffic, 0);
   const avgPos = currentRankings.length > 0

@@ -80,10 +80,10 @@ export default function OpportunitiesTable({ opportunities }: OpportunitiesTable
           <thead>
             <tr className="bg-gray-50 text-left">
               <th className="px-4 py-2 font-medium text-gray-600">Keyword</th>
+              <th className="px-4 py-2 font-medium text-gray-600">Hub Topic</th>
               <th className="px-4 py-2 font-medium text-gray-600">Volume</th>
               <th className="px-4 py-2 font-medium text-gray-600">KD</th>
               <th className="px-4 py-2 font-medium text-gray-600">CPC</th>
-              <th className="px-4 py-2 font-medium text-gray-600">Competition</th>
               <th className="px-4 py-2 font-medium text-gray-600">Source</th>
               <th className="px-4 py-2 font-medium text-gray-600">Relevance</th>
               <th className="px-4 py-2 font-medium text-gray-600">Intent</th>
@@ -93,10 +93,10 @@ export default function OpportunitiesTable({ opportunities }: OpportunitiesTable
             {paged.map((kw, i) => (
               <tr key={`${kw.keyword}-${i}`} className="hover:bg-gray-50">
                 <td className="px-4 py-2 font-medium text-gray-900 max-w-[300px] truncate">{kw.keyword}</td>
+                <td className="px-4 py-2 text-xs text-gray-500">{kw.hubTopic || '—'}</td>
                 <td className="px-4 py-2 text-gray-700">{kw.searchVolume.toLocaleString()}</td>
                 <td className="px-4 py-2 text-gray-700">{kw.keywordDifficulty}</td>
                 <td className="px-4 py-2 text-gray-700">${kw.cpc.toFixed(2)}</td>
-                <td className="px-4 py-2 text-gray-700">{(kw.competition * 100).toFixed(0)}%</td>
                 <td className="px-4 py-2">
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${sourceColors[kw.source] || 'bg-gray-100'}`}>
                     {kw.source}

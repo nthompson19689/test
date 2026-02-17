@@ -42,6 +42,7 @@ export interface KeywordOpportunity {
   intent: string[];
   source: 'gap' | 'suggestion' | 'related';
   relevanceScore: number;
+  hubTopic?: string; // which hub this opportunity belongs to
 }
 
 export interface ContentRefreshSuggestion {
