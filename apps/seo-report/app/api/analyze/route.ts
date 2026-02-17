@@ -7,6 +7,10 @@ const AnalyzeSchema = z.object({
   valueProposition: z.string().min(10).max(2000),
   dataforseoLogin: z.string().optional(),
   dataforseoPassword: z.string().optional(),
+  industry: z.string().optional(),
+  negativeKeywords: z.array(z.string()).optional(),
+  products: z.array(z.string()).optional(),
+  targetAudience: z.string().optional(),
   locationCode: z.number().optional().default(2840),
   languageCode: z.string().optional().default('en'),
 });
@@ -27,7 +31,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const input = { ...parsed, dataforseoLogin, dataforseoPassword };
+    const input = {
+      ...parsed,
+      dataforseoLogin,
+      dataforseoPassword,
+      industry: parsed.industry || undefined,
+      negativeKeywords: parsed.negativeKeywords || undefined,
+      products: parsed.products || undefined,
+      targetAudience: parsed.targetAudience || undefined,
+    };
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

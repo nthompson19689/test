@@ -11,6 +11,7 @@ import type {
   HubTopic,
 } from './types';
 import { deriveHubSeeds, buildHubAndSpoke, type HubSeed } from './hub-spoke';
+import { buildBrandContext, filterKeywordBatch } from './relevance-filter';
 
 /** Warnings collected during analysis (non-fatal issues) */
 export interface AnalysisWarning {
@@ -54,7 +55,11 @@ export async function generateSEOReport(
 
   // Step 4: DERIVE HUB TOPICS from value proposition + current rankings
   progress('Deriving hub topics from value proposition...', 38);
-  const hubSeeds = deriveHubSeeds(input.valueProposition, currentRankings);
+  const hubSeeds = deriveHubSeeds(input.valueProposition, currentRankings, {
+    industry: input.industry,
+    products: input.products,
+    targetAudience: input.targetAudience,
+  });
   progress(`Identified ${hubSeeds.length} hub topics — starting targeted research`, 40);
 
   // Step 5: PER-HUB KEYWORD RESEARCH — this is where the 500 net new come from
@@ -220,12 +225,39 @@ export async function generateSEOReport(
   // Step 6: Build Hub & Spoke model from research results
   progress('Building Hub & Spoke content strategy...', 85);
   const hubAndSpoke = buildHubAndSpoke(hubSeeds, hubKeywordMap, currentRankings);
-  progress('Hub & Spoke model built', 88);
+  progress('Hub & Spoke model built', 87);
 
-  // Step 7: Finalize net new opportunities (sorted by relevance, capped at 500)
-  const netNewOpportunities = allNetNew
+  // Step 7: Relevance filtering — remove noise keywords in batches
+  progress('Filtering irrelevant keywords...', 88);
+  const brandCtx = buildBrandContext(input);
+  let filteredOpportunities: KeywordOpportunity[];
+  let totalRemoved = 0;
+
+  // Process in batches of 250 for quality control
+  const BATCH_SIZE = 250;
+  const sortedRaw = allNetNew.sort((a, b) => b.relevanceScore - a.relevanceScore);
+  const allKept: KeywordOpportunity[] = [];
+
+  for (let batchStart = 0; batchStart < sortedRaw.length; batchStart += BATCH_SIZE) {
+    const batch = sortedRaw.slice(batchStart, batchStart + BATCH_SIZE);
+    const { kept, removed } = filterKeywordBatch(batch, brandCtx);
+    allKept.push(...kept);
+    totalRemoved += removed.length;
+  }
+
+  filteredOpportunities = allKept
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
     .slice(0, 500);
+
+  if (totalRemoved > 0) {
+    progress(`Filtered out ${totalRemoved} irrelevant keywords, keeping ${filteredOpportunities.length}`, 90);
+    warnings.push({
+      step: 'relevance_filter',
+      message: `Removed ${totalRemoved} keywords that didn't match brand context (industry, products, value proposition)`,
+    });
+  }
+
+  const netNewOpportunities = filteredOpportunities;
 
   // Step 8: Content refresh suggestions
   progress('Generating content refresh suggestions...', 90);

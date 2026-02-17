@@ -3,8 +3,26 @@ export interface SEOReportInput {
   valueProposition: string;
   dataforseoLogin: string;
   dataforseoPassword: string;
+  industry?: string;           // e.g. "webinar platform", "SaaS", "e-commerce"
+  negativeKeywords?: string[];  // terms that indicate irrelevant results
+  products?: string[];          // core products/services
+  targetAudience?: string;      // who the brand serves
   locationCode?: number; // default 2840 = United States
   languageCode?: string; // default "en"
+}
+
+/** Saved project configuration for quarterly re-runs */
+export interface SavedProject {
+  id: string;
+  name: string;
+  domain: string;
+  valueProposition: string;
+  industry: string;
+  negativeKeywords: string[];
+  products: string[];
+  targetAudience: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RankedKeyword {

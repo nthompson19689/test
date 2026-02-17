@@ -14,15 +14,22 @@ export interface HubSeed {
 /**
  * Phase 1: Derive hub topic seeds BEFORE keyword research.
  *
- * Analyzes the value proposition and current rankings to identify
- * 8-12 hub topics that should drive the keyword research.
+ * Analyzes the value proposition, brand context, and current rankings
+ * to identify 8-12 hub topics that should drive the keyword research.
  */
 export function deriveHubSeeds(
   valueProposition: string,
-  currentRankings: RankedKeyword[]
+  currentRankings: RankedKeyword[],
+  brandContext?: { industry?: string; products?: string[]; targetAudience?: string }
 ): HubSeed[] {
-  const vpTerms = extractTopicTerms(valueProposition);
-  const vpBigrams = extractBigrams(valueProposition);
+  // Build extended text from all brand signals
+  let fullBrandText = valueProposition;
+  if (brandContext?.industry) fullBrandText += ' ' + brandContext.industry;
+  if (brandContext?.products?.length) fullBrandText += ' ' + brandContext.products.join(' ');
+  if (brandContext?.targetAudience) fullBrandText += ' ' + brandContext.targetAudience;
+
+  const vpTerms = extractTopicTerms(fullBrandText);
+  const vpBigrams = extractBigrams(fullBrandText);
 
   // Get top-performing keywords grouped by topic
   const topKeywords = currentRankings
