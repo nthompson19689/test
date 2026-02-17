@@ -254,21 +254,19 @@ export interface KeywordSuggestionsResult {
 
 export interface KeywordSuggestionItem {
   se_type: string;
-  keyword_data: {
-    keyword: string;
-    keyword_info: {
-      search_volume: number;
-      cpc: number;
-      competition: number;
-      competition_level: string;
-    };
-    search_intent_info?: {
-      main_intent: string;
-      foreign_intent: string[];
-    };
-    keyword_properties?: {
-      keyword_difficulty: number;
-    };
+  keyword: string;
+  keyword_info: {
+    search_volume: number;
+    cpc: number;
+    competition: number;
+    competition_level: string;
+  };
+  search_intent_info?: {
+    main_intent: string;
+    foreign_intent: string[];
+  };
+  keyword_properties?: {
+    keyword_difficulty: number;
   };
 }
 

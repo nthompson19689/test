@@ -87,19 +87,19 @@ export async function generateSEOReport(
       const suggestionsResult = suggestionsResponse.tasks?.[0]?.result?.[0];
       if (suggestionsResult?.items) {
         for (const item of suggestionsResult.items) {
-          const kw = item.keyword_data.keyword;
+          const kw = item.keyword;
           const kwLower = kw.toLowerCase();
           if (globalSeenKeywords.has(kwLower)) continue;
           globalSeenKeywords.add(kwLower);
 
           const kwData = {
             keyword: kw,
-            searchVolume: item.keyword_data.keyword_info.search_volume || 0,
-            keywordDifficulty: item.keyword_data.keyword_properties?.keyword_difficulty || 0,
-            cpc: item.keyword_data.keyword_info.cpc || 0,
-            competition: item.keyword_data.keyword_info.competition || 0,
-            intent: item.keyword_data.search_intent_info
-              ? [item.keyword_data.search_intent_info.main_intent, ...(item.keyword_data.search_intent_info.foreign_intent || [])]
+            searchVolume: item.keyword_info.search_volume || 0,
+            keywordDifficulty: item.keyword_properties?.keyword_difficulty || 0,
+            cpc: item.keyword_info.cpc || 0,
+            competition: item.keyword_info.competition || 0,
+            intent: item.search_intent_info
+              ? [item.search_intent_info.main_intent, ...(item.search_intent_info.foreign_intent || [])]
               : [],
             currentRanking: null as number | null,
           };
