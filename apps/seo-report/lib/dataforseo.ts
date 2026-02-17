@@ -91,9 +91,6 @@ export class DataForSEOClient {
         limit,
         offset,
         order_by: ['keyword_data.keyword_info.search_volume,desc'],
-        filters: [
-          ['ranked_serp_element.serp_item.rank_group', '<=', 100]
-        ],
       }]
     );
   }
@@ -106,9 +103,7 @@ export class DataForSEOClient {
         location_code: this.locationCode,
         language_code: this.languageCode,
         limit,
-        filters: [
-          ['relevant_serp_items', '>', 10]
-        ],
+        filters: ['metrics.organic.count', '>', 50],
         order_by: ['avg_position,asc'],
       }]
     );
@@ -163,11 +158,8 @@ export class DataForSEOClient {
         location_code: this.locationCode,
         language_code: this.languageCode,
         limit,
-        // Keywords where competitor ranks but target doesn't (or ranks worse)
-        intersections: {
-          [competitorDomain]: { '1': true },  // competitor present in top results
-          [domain]: { '1': false },  // our domain NOT present
-        },
+        // false = keywords where target1 ranks but target2 does NOT
+        intersections: false,
         order_by: ['keyword_data.keyword_info.search_volume,desc'],
       }]
     );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { SEOReport } from '@/lib/types';
 
 interface ReportFormProps {
@@ -15,6 +15,15 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ step: '', pct: 0 });
   const [error, setError] = useState('');
+  const [envCredsConfigured, setEnvCredsConfigured] = useState<boolean | null>(null);
+  const [showManualCreds, setShowManualCreds] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then(res => res.json())
+      .then(data => setEnvCredsConfigured(data.hasCredentials))
+      .catch(() => setEnvCredsConfigured(false));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,18 +32,25 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
     setProgress({ step: 'Initializing...', pct: 0 });
 
     try {
+      const payload: Record<string, string> = { domain, valueProposition };
+      // Only send credentials if manually entered (server falls back to env vars)
+      if (dataforseoLogin) payload.dataforseoLogin = dataforseoLogin;
+      if (dataforseoPassword) payload.dataforseoPassword = dataforseoPassword;
+
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          domain,
-          valueProposition,
-          dataforseoLogin,
-          dataforseoPassword,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok && !res.body) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to start analysis');
+      }
+
+      // Handle non-streaming error responses (e.g. missing credentials)
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
         const err = await res.json();
         throw new Error(err.error || 'Failed to start analysis');
       }
@@ -114,36 +130,74 @@ export default function ReportForm({ onReportGenerated }: ReportFormProps) {
           <p className="text-xs text-gray-500 mt-1">This helps the tool cluster keywords around relevant topics for hub &amp; spoke strategy</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="login" className="block text-sm font-medium text-gray-700 mb-1">
-              DataForSEO Login
-            </label>
-            <input
-              id="login"
-              type="text"
-              value={dataforseoLogin}
-              onChange={e => setDataforseoLogin(e.target.value)}
-              placeholder="your@email.com"
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+        {/* Credentials section */}
+        {envCredsConfigured === null ? (
+          <p className="text-xs text-gray-400">Checking API configuration...</p>
+        ) : envCredsConfigured && !showManualCreds ? (
+          <div className="bg-green-50 border border-green-200 rounded-md p-3 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-green-800">DataForSEO API key configured</p>
+              <p className="text-xs text-green-600">Using credentials from environment variables</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowManualCreds(true)}
+              className="text-xs text-green-700 underline hover:text-green-900"
+            >
+              Override
+            </button>
           </div>
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-              DataForSEO Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={dataforseoPassword}
-              onChange={e => setDataforseoPassword(e.target.value)}
-              placeholder="API password"
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+        ) : (
+          <div className="space-y-3">
+            {envCredsConfigured && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowManualCreds(false);
+                  setDataforseoLogin('');
+                  setDataforseoPassword('');
+                }}
+                className="text-xs text-blue-600 underline hover:text-blue-800"
+              >
+                Use environment variables instead
+              </button>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="login" className="block text-sm font-medium text-gray-700 mb-1">
+                  DataForSEO Login (email)
+                </label>
+                <input
+                  id="login"
+                  type="text"
+                  value={dataforseoLogin}
+                  onChange={e => setDataforseoLogin(e.target.value)}
+                  placeholder="your@email.com"
+                  required={!envCredsConfigured}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                />
+              </div>
+              <div>
+                <label htmlFor="apiKey" className="block text-sm font-medium text-gray-700 mb-1">
+                  DataForSEO API Key
+                </label>
+                <input
+                  id="apiKey"
+                  type="password"
+                  value={dataforseoPassword}
+                  onChange={e => setDataforseoPassword(e.target.value)}
+                  placeholder="Your API key from the DataForSEO dashboard"
+                  required={!envCredsConfigured}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">
+              Find these in your <span className="font-medium">DataForSEO dashboard → API Access</span>.
+              Or set <code className="bg-gray-100 px-1 rounded">DATAFORSEO_LOGIN</code> and <code className="bg-gray-100 px-1 rounded">DATAFORSEO_API_KEY</code> in your .env file.
+            </p>
           </div>
-        </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-3">

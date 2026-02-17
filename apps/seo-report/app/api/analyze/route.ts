@@ -5,8 +5,8 @@ import { generateSEOReport } from '@/lib/analyzer';
 const AnalyzeSchema = z.object({
   domain: z.string().min(3).transform(d => d.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase()),
   valueProposition: z.string().min(10).max(2000),
-  dataforseoLogin: z.string().min(1),
-  dataforseoPassword: z.string().min(1),
+  dataforseoLogin: z.string().optional(),
+  dataforseoPassword: z.string().optional(),
   locationCode: z.number().optional().default(2840),
   languageCode: z.string().optional().default('en'),
 });
@@ -14,7 +14,20 @@ const AnalyzeSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const input = AnalyzeSchema.parse(body);
+    const parsed = AnalyzeSchema.parse(body);
+
+    // Resolve credentials: form values take priority, then env vars
+    const dataforseoLogin = parsed.dataforseoLogin || process.env.DATAFORSEO_LOGIN;
+    const dataforseoPassword = parsed.dataforseoPassword || process.env.DATAFORSEO_API_KEY;
+
+    if (!dataforseoLogin || !dataforseoPassword) {
+      return Response.json(
+        { error: 'DataForSEO credentials required. Either set DATAFORSEO_LOGIN and DATAFORSEO_API_KEY environment variables, or provide them in the form.' },
+        { status: 400 }
+      );
+    }
+
+    const input = { ...parsed, dataforseoLogin, dataforseoPassword };
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
