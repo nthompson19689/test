@@ -40,5 +40,14 @@ Thumbs.db
 prisma/dev.db
 prisma/dev.db-journal
 
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Service account keys
+gsc-service-account.json
+
 # Misc
 *.tsbuildinfo
