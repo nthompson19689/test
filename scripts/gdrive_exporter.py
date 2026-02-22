@@ -11,15 +11,16 @@ Usage:
 """
 
 import argparse
-import json
+import io
 import os
-import re
 import sys
 from datetime import datetime
 
+import markdown2
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 from supabase import create_client
 
 load_dotenv()
@@ -122,168 +123,35 @@ def doc_name_exists(service, name, folder_id):
 
 
 # ---------------------------------------------------------------------------
-# Markdown → Google Docs conversion
+# Google Doc creation via Drive Files API
 # ---------------------------------------------------------------------------
 
-def markdown_to_doc_requests(markdown_text):
-    """Convert markdown text to a list of Google Docs API batchUpdate requests.
+def create_google_doc(drive_service, name, markdown_content, folder_id):
+    """Create a Google Doc by uploading HTML via the Drive Files API.
 
-    Inserts the full plain text first, then applies formatting in reverse
-    offset order so earlier mutations don't shift later offsets.
+    Converts markdown to HTML, then uploads with mimeType
+    'application/vnd.google-apps.document' so Drive auto-converts the
+    HTML into a native Google Doc with formatting preserved.
     """
-    lines = markdown_text.split("\n")
-    # Build a plain-text document and collect formatting ranges
-    plain_parts = []
-    formats = []  # (start, end, fmt_type, extra)
-    offset = 1  # Docs body starts at index 1
+    html_content = markdown2.markdown(markdown_content)
 
-    for line in lines:
-        stripped = line.rstrip()
-
-        # Headings
-        heading_match = re.match(r"^(#{1,3})\s+(.*)", stripped)
-        if heading_match:
-            level = len(heading_match.group(1))
-            text = heading_match.group(2)
-            plain_parts.append(text + "\n")
-            formats.append((offset, offset + len(text) + 1, "heading", level))
-            offset += len(text) + 1
-            continue
-
-        # Regular line — process inline markdown
-        processed, inline_formats = process_inline_markdown(stripped, offset)
-        plain_parts.append(processed + "\n")
-        formats.extend(inline_formats)
-        offset += len(processed) + 1
-
-    plain_text = "".join(plain_parts)
-
-    # Build requests: first insert all text
-    requests = []
-    if plain_text:
-        requests.append({
-            "insertText": {
-                "location": {"index": 1},
-                "text": plain_text,
-            }
-        })
-
-    # Apply formatting in reverse order so offsets stay valid
-    for start, end, fmt_type, extra in reversed(formats):
-        if fmt_type == "heading":
-            heading_map = {1: "HEADING_1", 2: "HEADING_2", 3: "HEADING_3"}
-            requests.append({
-                "updateParagraphStyle": {
-                    "range": {"startIndex": start, "endIndex": end},
-                    "paragraphStyle": {"namedStyleType": heading_map.get(extra, "HEADING_1")},
-                    "fields": "namedStyleType",
-                }
-            })
-        elif fmt_type == "bold":
-            requests.append({
-                "updateTextStyle": {
-                    "range": {"startIndex": start, "endIndex": end},
-                    "textStyle": {"bold": True},
-                    "fields": "bold",
-                }
-            })
-        elif fmt_type == "italic":
-            requests.append({
-                "updateTextStyle": {
-                    "range": {"startIndex": start, "endIndex": end},
-                    "textStyle": {"italic": True},
-                    "fields": "italic",
-                }
-            })
-        elif fmt_type == "link":
-            url = extra
-            requests.append({
-                "updateTextStyle": {
-                    "range": {"startIndex": start, "endIndex": end},
-                    "textStyle": {"link": {"url": url}},
-                    "fields": "link",
-                }
-            })
-
-    return requests
-
-
-def process_inline_markdown(text, base_offset):
-    """Strip inline markdown (bold, italic, links) and return plain text + format ranges."""
-    formats = []
-    result = ""
-    i = 0
-
-    while i < len(text):
-        # Links: [text](url)
-        link_match = re.match(r"\[([^\]]+)\]\(([^)]+)\)", text[i:])
-        if link_match:
-            link_text = link_match.group(1)
-            link_url = link_match.group(2)
-            start = base_offset + len(result)
-            result += link_text
-            end = base_offset + len(result)
-            formats.append((start, end, "link", link_url))
-            i += link_match.end()
-            continue
-
-        # Bold: **text** or __text__
-        bold_match = re.match(r"\*\*(.+?)\*\*|__(.+?)__", text[i:])
-        if bold_match:
-            bold_text = bold_match.group(1) or bold_match.group(2)
-            start = base_offset + len(result)
-            result += bold_text
-            end = base_offset + len(result)
-            formats.append((start, end, "bold", None))
-            i += bold_match.end()
-            continue
-
-        # Italic: *text* or _text_ (but not inside bold)
-        italic_match = re.match(r"\*(.+?)\*|_(.+?)_", text[i:])
-        if italic_match:
-            italic_text = italic_match.group(1) or italic_match.group(2)
-            start = base_offset + len(result)
-            result += italic_text
-            end = base_offset + len(result)
-            formats.append((start, end, "italic", None))
-            i += italic_match.end()
-            continue
-
-        result += text[i]
-        i += 1
-
-    return result, formats
-
-
-def create_google_doc(drive_service, docs_service, name, markdown_content, folder_id):
-    """Create a Google Doc via the Docs API, then move it into the target folder.
-
-    Two-step process so the doc is created in the authenticated user's Drive
-    storage (not the service account's) and then placed in the shared folder.
-    """
-    # Step 1: Create empty doc via Docs API
-    doc = docs_service.documents().create(body={"title": name}).execute()
-    doc_id = doc["documentId"]
-
-    # Step 2: Move doc into the target folder via Drive API
-    # Retrieve current parents so we can remove them in the same call
-    file = drive_service.files().get(fileId=doc_id, fields="parents").execute()
-    previous_parents = ",".join(file.get("parents", []))
-    drive_service.files().update(
-        fileId=doc_id,
-        addParents=folder_id,
-        removeParents=previous_parents,
-        fields="id",
+    file_metadata = {
+        "name": name,
+        "mimeType": "application/vnd.google-apps.document",
+        "parents": [folder_id],
+    }
+    media = MediaIoBaseUpload(
+        io.BytesIO(html_content.encode("utf-8")),
+        mimetype="text/html",
+    )
+    doc_file = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id, webViewLink",
     ).execute()
 
-    # Step 3: Insert formatted content
-    requests = markdown_to_doc_requests(markdown_content)
-    if requests:
-        docs_service.documents().batchUpdate(
-            documentId=doc_id, body={"requests": requests}
-        ).execute()
-
-    doc_url = f"https://docs.google.com/document/d/{doc_id}/edit"
+    doc_id = doc_file["id"]
+    doc_url = doc_file.get("webViewLink", "")
     return doc_id, doc_url
 
 
@@ -331,7 +199,6 @@ def main():
     # --- Step 2: Authenticate with Google Drive ---
     creds = get_google_credentials()
     drive_service = build("drive", "v3", credentials=creds)
-    docs_service = build("docs", "v1", credentials=creds)
 
     # --- Step 3: Use configured parent folder ---
     if not GDRIVE_FOLDER_ID:
@@ -360,7 +227,7 @@ def main():
                 doc_name = f"{keyword} ({date_str})"
 
             doc_id, doc_url = create_google_doc(
-                drive_service, docs_service, doc_name, clean_version, folder_id
+                drive_service, doc_name, clean_version, folder_id
             )
 
             # Update content_edits status to 'exported'
