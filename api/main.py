@@ -2,6 +2,7 @@
 Content Engine API — FastAPI backend wrapping Python pipeline scripts.
 
 Endpoints:
+  GET  /                 — serve ui/index.html
   GET  /clients          — list all clients from Supabase
   POST /run-pipeline     — stream pipeline execution via SSE
   POST /upload-keywords  — upload CSV, return column headers
@@ -32,7 +33,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from supabase import Client, create_client
 
@@ -59,6 +60,7 @@ if not ANTHROPIC_API_KEY:
     )
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -73,6 +75,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Static UI
+# ---------------------------------------------------------------------------
+
+
+@app.get("/")
+def serve_ui():
+    """Serve the single-page UI."""
+    index = UI_DIR / "index.html"
+    if not index.exists():
+        raise HTTPException(status_code=404, detail="ui/index.html not found")
+    return FileResponse(index, media_type="text/html")
+
 
 # ---------------------------------------------------------------------------
 # Supabase client (lazy init so the app can still start without creds)
