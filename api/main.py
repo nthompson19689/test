@@ -60,7 +60,6 @@ if not ANTHROPIC_API_KEY:
     )
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -84,7 +83,7 @@ app.add_middleware(
 @app.get("/")
 def serve_ui():
     """Serve the single-page UI."""
-    index = UI_DIR / "index.html"
+    index = Path(__file__).parent.parent / "ui" / "index.html"
     if not index.exists():
         raise HTTPException(status_code=404, detail="ui/index.html not found")
     return FileResponse(index, media_type="text/html")
