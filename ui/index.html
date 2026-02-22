@@ -129,6 +129,40 @@ tr.expandable{cursor:pointer}
 .preview-table{width:100%;overflow-x:auto;margin-top:12px}
 .preview-table table{font-size:.8rem}
 .preview-table th{background:var(--surface)}
+
+/* ------------------------------------------------------------------ */
+/*  Tab 5 — Article Editor                                             */
+/* ------------------------------------------------------------------ */
+.editor-topbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.editor-topbar select{max-width:320px}
+.editor-wordcount{font-size:.85rem;color:var(--muted);white-space:nowrap}
+.editor-wordcount .delta{font-weight:600;margin-left:4px}
+.editor-wordcount .delta.positive{color:var(--green)}
+.editor-wordcount .delta.negative{color:var(--red)}
+.editor-panels{display:flex;gap:16px;height:calc(100vh - 180px);min-height:400px}
+.editor-left{flex:6;display:flex;flex-direction:column;min-width:0}
+.editor-right{flex:4;display:flex;flex-direction:column;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.editor-toolbar{display:flex;gap:6px;margin-bottom:8px}
+.editor-toolbar button{background:var(--surface);border:1px solid var(--border);color:var(--text);width:32px;height:32px;border-radius:var(--radius);cursor:pointer;font-size:.85rem;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:var(--font-sans)}
+.editor-toolbar button:hover{border-color:var(--accent);color:var(--accent)}
+#editorTextarea{flex:1;resize:none;font-family:var(--font-mono);font-size:.85rem;line-height:1.7;padding:16px;border-radius:var(--radius);transition:background .3s}
+#editorTextarea.highlight{background:rgba(124,58,237,.08)}
+.chat-history{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.chat-entry{font-size:.8rem;line-height:1.5;color:var(--text)}
+.chat-entry .chat-time{color:var(--muted);font-size:.72rem;margin-right:6px}
+.chat-entry .chat-check{color:var(--green);margin-left:4px}
+.chat-entry .chat-fail{color:var(--red);margin-left:4px}
+.chat-empty{color:var(--muted);font-size:.85rem;text-align:center;padding:40px 16px}
+.chat-input-area{border-top:1px solid var(--border);padding:12px;display:flex;gap:8px}
+.chat-input-area input{flex:1}
+
+/* Save modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;max-width:420px;width:90%}
+.modal-box h3{font-size:1.1rem;margin-bottom:12px}
+.modal-box p{color:var(--muted);font-size:.85rem;margin-bottom:20px;line-height:1.5}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -149,6 +183,7 @@ tr.expandable{cursor:pointer}
     <button onclick="switchTab('upload')">Upload Keywords</button>
     <button onclick="switchTab('schedule')">Schedule</button>
     <button onclick="switchTab('articles')">Articles</button>
+    <button onclick="switchTab('editor')">Article Editor</button>
   </nav>
 </div>
 
@@ -260,7 +295,54 @@ tr.expandable{cursor:pointer}
   <div class="pagination" id="articlesPagination"></div>
 </div>
 
+<!-- ============= TAB 5 — Article Editor ============= -->
+<div id="tab-editor" class="tab">
+  <div class="editor-topbar">
+    <select id="editorArticleSelect" style="flex:1;max-width:360px">
+      <option value="">Select an article...</option>
+    </select>
+    <span class="editor-wordcount" id="editorWordCount"></span>
+    <div style="flex:1"></div>
+    <button class="btn btn-sm btn-outline" id="btnUndo" onclick="editorUndo()" disabled>Undo</button>
+    <button class="btn btn-sm" id="btnSave" onclick="openSaveModal()">Save to Supabase</button>
+  </div>
+
+  <div class="editor-panels">
+    <!-- Left: textarea -->
+    <div class="editor-left">
+      <div class="editor-toolbar">
+        <button title="Bold (Cmd+B)" onclick="editorBold()"><strong>B</strong></button>
+        <button title="Italic (Cmd+I)" onclick="editorItalic()"><em>I</em></button>
+      </div>
+      <textarea id="editorTextarea" placeholder="Select an article to begin editing..."></textarea>
+    </div>
+
+    <!-- Right: chat panel -->
+    <div class="editor-right">
+      <div class="chat-history" id="chatHistory">
+        <div class="chat-empty">Edit history will appear here.</div>
+      </div>
+      <div class="chat-input-area">
+        <input type="text" id="editorInstruction" placeholder="What would you like to change?" />
+        <button class="btn btn-sm" id="btnApplyEdit" onclick="applyEdit()">Apply Edit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 </div><!-- /main -->
+
+<!-- Save confirmation modal -->
+<div class="modal-overlay" id="saveModal">
+  <div class="modal-box">
+    <h3>Save changes?</h3>
+    <p>This will overwrite the current clean version in Supabase.</p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeSaveModal()">Cancel</button>
+      <button class="btn" id="btnConfirmSave" onclick="saveArticle()">Confirm</button>
+    </div>
+  </div>
+</div>
 
 <!-- Toast container -->
 <div id="toast-container"></div>
@@ -303,11 +385,12 @@ function switchTab(name) {
   document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
   document.getElementById(`tab-${name}`).classList.add('active');
   // highlight nav button
-  const idx = { pipeline: 0, upload: 1, schedule: 2, articles: 3 }[name];
+  const idx = { pipeline: 0, upload: 1, schedule: 2, articles: 3, editor: 4 }[name];
   document.querySelectorAll('.nav button')[idx].classList.add('active');
   // auto-fetch data for some tabs
   if (name === 'schedule' && selectedDomain) fetchSchedule();
   if (name === 'articles' && selectedDomain) fetchArticles();
+  if (name === 'editor' && selectedDomain) fetchEditorArticles();
 }
 
 /* ------------------------------------------------------------------ */
@@ -336,6 +419,7 @@ document.getElementById('domainSelect').addEventListener('change', function () {
   const activeTab = document.querySelector('.tab.active')?.id?.replace('tab-', '');
   if (activeTab === 'schedule' && selectedDomain) fetchSchedule();
   if (activeTab === 'articles' && selectedDomain) fetchArticles();
+  if (activeTab === 'editor' && selectedDomain) fetchEditorArticles();
 });
 
 /* ------------------------------------------------------------------ */
@@ -727,6 +811,277 @@ function copyArticle(idx, btn) {
 /* ------------------------------------------------------------------ */
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function enc(s) { return encodeURIComponent(s); }
+
+/* ------------------------------------------------------------------ */
+/*  TAB 5 — Article Editor                                             */
+/* ------------------------------------------------------------------ */
+let editorArticles = [];
+let editorSelectedId = '';
+let editorVersions = [];   // max 5, [0] = oldest
+let editorVersionIdx = -1; // points to current version in editorVersions
+let editorBaseWordCount = 0;
+let editorEditing = false;
+let editorChatLog = [];    // {time, instruction, ok}
+
+async function fetchEditorArticles() {
+  if (!selectedDomain) return;
+  try {
+    const resp = await fetch(`${API}/editor-articles?domain=${enc(selectedDomain)}`);
+    editorArticles = await resp.json();
+    const sel = document.getElementById('editorArticleSelect');
+    sel.innerHTML = '<option value="">Select an article...</option>';
+    editorArticles.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = `${a.keyword} — ${(a.created_at || '').slice(0, 10)}`;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    toast('Failed to load articles for editor', 'error');
+  }
+}
+
+document.getElementById('editorArticleSelect').addEventListener('change', async function () {
+  const id = this.value;
+  editorSelectedId = id;
+  editorChatLog = [];
+  renderChatHistory();
+
+  if (!id) {
+    document.getElementById('editorTextarea').value = '';
+    editorVersions = [];
+    editorVersionIdx = -1;
+    updateEditorWordCount();
+    updateUndoBtn();
+    return;
+  }
+
+  // Fetch the full article content
+  try {
+    const resp = await fetch(`${API}/articles?domain=${enc(selectedDomain)}`);
+    const all = await resp.json();
+    const article = all.find(a => a.id === id);
+    const content = article ? (article.clean_version || '') : '';
+    document.getElementById('editorTextarea').value = content;
+    editorVersions = [content];
+    editorVersionIdx = 0;
+    editorBaseWordCount = countWords(content);
+    updateEditorWordCount();
+    updateUndoBtn();
+  } catch (e) {
+    toast('Failed to load article content', 'error');
+  }
+});
+
+function countWords(text) {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+function updateEditorWordCount() {
+  const ta = document.getElementById('editorTextarea');
+  const wc = countWords(ta.value);
+  const el = document.getElementById('editorWordCount');
+  let html = `${wc.toLocaleString()} words`;
+  if (editorBaseWordCount > 0 && editorVersionIdx > 0) {
+    const diff = wc - editorBaseWordCount;
+    if (diff !== 0) {
+      const sign = diff > 0 ? '+' : '';
+      const cls = diff > 0 ? 'positive' : 'negative';
+      html += ` <span class="delta ${cls}">${sign}${diff}</span>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+// Live word count as user types
+document.getElementById('editorTextarea').addEventListener('input', updateEditorWordCount);
+
+function updateUndoBtn() {
+  document.getElementById('btnUndo').disabled = editorVersionIdx <= 0;
+}
+
+function pushVersion(content) {
+  // Trim history beyond current pointer (discard redo future)
+  editorVersions = editorVersions.slice(0, editorVersionIdx + 1);
+  editorVersions.push(content);
+  // Keep max 5 versions
+  if (editorVersions.length > 5) {
+    editorVersions.shift();
+  }
+  editorVersionIdx = editorVersions.length - 1;
+  updateUndoBtn();
+}
+
+function editorUndo() {
+  if (editorVersionIdx <= 0) return;
+  editorVersionIdx--;
+  document.getElementById('editorTextarea').value = editorVersions[editorVersionIdx];
+  updateEditorWordCount();
+  updateUndoBtn();
+}
+
+function updateApplyBtn() {
+  const ta = document.getElementById('editorTextarea').value.trim();
+  const inst = document.getElementById('editorInstruction').value.trim();
+  document.getElementById('btnApplyEdit').disabled = !ta || !inst || editorEditing;
+}
+
+document.getElementById('editorInstruction').addEventListener('input', updateApplyBtn);
+document.getElementById('editorTextarea').addEventListener('input', updateApplyBtn);
+
+async function applyEdit() {
+  if (!editorSelectedId) { toast('Select an article first', 'error'); return; }
+  const instruction = document.getElementById('editorInstruction').value.trim();
+  const currentContent = document.getElementById('editorTextarea').value;
+  if (!instruction || !currentContent) return;
+
+  const btn = document.getElementById('btnApplyEdit');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Editing...';
+  editorEditing = true;
+
+  try {
+    const resp = await fetch(`${API}/edit-article`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        article_id: editorSelectedId,
+        instruction: instruction,
+        current_content: currentContent
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Edit failed');
+
+    if (data.success && data.content) {
+      // Update textarea atomically
+      document.getElementById('editorTextarea').value = data.content;
+      pushVersion(data.content);
+      updateEditorWordCount();
+
+      // Highlight effect
+      const ta = document.getElementById('editorTextarea');
+      ta.classList.add('highlight');
+      setTimeout(() => ta.classList.remove('highlight'), 3000);
+
+      // Log to chat
+      editorChatLog.push({ time: new Date(), instruction, ok: true });
+      renderChatHistory();
+      document.getElementById('editorInstruction').value = '';
+      toast('Edit applied');
+    } else {
+      throw new Error('No content returned');
+    }
+  } catch (e) {
+    editorChatLog.push({ time: new Date(), instruction, ok: false });
+    renderChatHistory();
+    toast('Edit failed: ' + e.message, 'error');
+  } finally {
+    btn.innerHTML = 'Apply Edit';
+    editorEditing = false;
+    updateApplyBtn();
+  }
+}
+
+// Enter key in instruction input
+document.getElementById('editorInstruction').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && !editorEditing) applyEdit();
+});
+
+function renderChatHistory() {
+  const el = document.getElementById('chatHistory');
+  if (!editorChatLog.length) {
+    el.innerHTML = '<div class="chat-empty">Edit history will appear here.</div>';
+    return;
+  }
+  el.innerHTML = editorChatLog.map(entry => {
+    const t = entry.time;
+    const timeStr = t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const icon = entry.ok
+      ? '<span class="chat-check">&#10003;</span>'
+      : '<span class="chat-fail">&#10007;</span>';
+    return `<div class="chat-entry"><span class="chat-time">${esc(timeStr)}</span> &mdash; ${esc(entry.instruction)}${icon}</div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+// Bold / Italic toolbar
+function editorBold() {
+  wrapSelection('**', '**');
+}
+function editorItalic() {
+  wrapSelection('*', '*');
+}
+function wrapSelection(before, after) {
+  const ta = document.getElementById('editorTextarea');
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const text = ta.value;
+  const selected = text.substring(start, end);
+  const replacement = before + selected + after;
+  ta.value = text.substring(0, start) + replacement + text.substring(end);
+  ta.selectionStart = start + before.length;
+  ta.selectionEnd = start + before.length + selected.length;
+  ta.focus();
+}
+
+// Keyboard shortcuts for bold/italic
+document.getElementById('editorTextarea').addEventListener('keydown', function (e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+    e.preventDefault();
+    editorBold();
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
+    e.preventDefault();
+    editorItalic();
+  }
+});
+
+// Save modal
+function openSaveModal() {
+  if (!editorSelectedId) { toast('No article selected', 'error'); return; }
+  document.getElementById('saveModal').classList.add('open');
+}
+function closeSaveModal() {
+  document.getElementById('saveModal').classList.remove('open');
+}
+
+async function saveArticle() {
+  const btn = document.getElementById('btnConfirmSave');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Saving...';
+
+  try {
+    const resp = await fetch(`${API}/save-article`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        article_id: editorSelectedId,
+        content: document.getElementById('editorTextarea').value
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Save failed');
+
+    closeSaveModal();
+    toast('Article saved to Supabase');
+  } catch (e) {
+    toast('Save failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Confirm';
+  }
+}
+
+// Close modal on overlay click
+document.getElementById('saveModal').addEventListener('click', function (e) {
+  if (e.target === this) closeSaveModal();
+});
+
+// Close modal on Escape
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeSaveModal();
+});
 
 /* ------------------------------------------------------------------ */
 /*  Init                                                               */

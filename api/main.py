@@ -2,16 +2,19 @@
 Content Engine API — FastAPI backend wrapping Python pipeline scripts.
 
 Endpoints:
-  GET  /clients         — list all clients from Supabase
-  POST /run-pipeline    — stream pipeline execution via SSE
-  POST /upload-keywords — upload CSV, return column headers
-  POST /load-keywords   — load keywords into Supabase (non-interactive)
-  GET  /articles        — query articles with optional filters
-  GET  /schedule        — query content schedule
-  POST /batch-run       — stream batch execution via SSE
+  GET  /clients          — list all clients from Supabase
+  POST /run-pipeline     — stream pipeline execution via SSE
+  POST /upload-keywords  — upload CSV, return column headers
+  POST /load-keywords    — load keywords into Supabase (non-interactive)
+  GET  /articles         — query articles with optional filters
+  GET  /schedule         — query content schedule
+  POST /batch-run        — stream batch execution via SSE
+  GET  /editor-articles  — articles list for editor dropdown
+  POST /edit-article     — AI-powered article editing via Claude
+  POST /save-article     — persist edited article to Supabase
 
 Run:
-  pip3 install fastapi uvicorn python-multipart supabase python-dotenv
+  pip3 install fastapi uvicorn python-multipart supabase python-dotenv anthropic
   uvicorn api.main:app --reload --port 8000
 """
 
@@ -41,11 +44,18 @@ load_dotenv()
 
 SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     print(
         "WARNING: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set. "
         "Database endpoints will fail."
+    )
+
+if not ANTHROPIC_API_KEY:
+    print(
+        "WARNING: ANTHROPIC_API_KEY not set. "
+        "The /edit-article endpoint will fail."
     )
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
@@ -103,6 +113,17 @@ class LoadKeywordsRequest(BaseModel):
 class BatchRunRequest(BaseModel):
     domain: str
     date: str
+
+
+class EditArticleRequest(BaseModel):
+    article_id: str
+    instruction: str
+    current_content: str
+
+
+class SaveArticleRequest(BaseModel):
+    article_id: str
+    content: str
 
 
 # ---------------------------------------------------------------------------
@@ -320,3 +341,94 @@ async def batch_run(body: BatchRunRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Article Editor endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/editor-articles")
+def list_editor_articles(domain: str):
+    """Return articles for the editor dropdown (pending/reviewed/exported)."""
+    sb = get_supabase()
+
+    resp = (
+        sb.table("content_edits")
+        .select("id, keyword, status, word_count, created_at")
+        .eq("domain", domain)
+        .in_("status", ["pending", "reviewed", "exported"])
+        .order("created_at", desc=True)
+        .limit(20)
+        .execute()
+    )
+    return resp.data
+
+
+@app.post("/edit-article")
+async def edit_article(body: EditArticleRequest):
+    """
+    Call Claude to apply an editing instruction to article content.
+
+    Buffers the complete streamed response from the Anthropic API and
+    returns it as a single JSON payload — no character-by-character
+    streaming to the frontend.
+    """
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="ANTHROPIC_API_KEY not configured. Set it in .env",
+        )
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=8000,
+            system=(
+                "You are an expert editor. Apply the user's instruction "
+                "precisely without rewriting sections that weren't asked "
+                "about. Return only the updated article in the same "
+                "markdown format, no commentary, no preamble."
+            ),
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Article:\n{body.current_content}\n\n"
+                        f"Instruction: {body.instruction}"
+                    ),
+                }
+            ],
+        )
+
+        content = message.content[0].text
+        return {"content": content, "success": True}
+
+    except anthropic.APIError as exc:
+        raise HTTPException(status_code=502, detail=f"Anthropic API error: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/save-article")
+def save_article(body: SaveArticleRequest):
+    """Persist edited article content back to Supabase."""
+    sb = get_supabase()
+
+    word_count = len(body.content.split())
+
+    resp = (
+        sb.table("content_edits")
+        .update({"clean_version": body.content, "word_count": word_count})
+        .eq("id", body.article_id)
+        .execute()
+    )
+
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    return {"success": True}
