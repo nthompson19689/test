@@ -40,5 +40,9 @@ Thumbs.db
 prisma/dev.db
 prisma/dev.db-journal
 
+# Python
+__pycache__/
+*.pyc
+
 # Misc
 *.tsbuildinfo
