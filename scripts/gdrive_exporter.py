@@ -255,25 +255,35 @@ def process_inline_markdown(text, base_offset):
     return result, formats
 
 
-def create_google_doc(service, docs_service, name, markdown_content, folder_id):
-    """Create a Google Doc from markdown. Returns (doc_id, doc_url)."""
-    # Create an empty doc
-    doc_metadata = {
-        "name": name,
-        "mimeType": "application/vnd.google-apps.document",
-        "parents": [folder_id],
-    }
-    doc_file = service.files().create(body=doc_metadata, fields="id, webViewLink").execute()
-    doc_id = doc_file["id"]
-    doc_url = doc_file.get("webViewLink", "")
+def create_google_doc(drive_service, docs_service, name, markdown_content, folder_id):
+    """Create a Google Doc via the Docs API, then move it into the target folder.
 
-    # Apply content via Docs API
+    Two-step process so the doc is created in the authenticated user's Drive
+    storage (not the service account's) and then placed in the shared folder.
+    """
+    # Step 1: Create empty doc via Docs API
+    doc = docs_service.documents().create(body={"title": name}).execute()
+    doc_id = doc["documentId"]
+
+    # Step 2: Move doc into the target folder via Drive API
+    # Retrieve current parents so we can remove them in the same call
+    file = drive_service.files().get(fileId=doc_id, fields="parents").execute()
+    previous_parents = ",".join(file.get("parents", []))
+    drive_service.files().update(
+        fileId=doc_id,
+        addParents=folder_id,
+        removeParents=previous_parents,
+        fields="id",
+    ).execute()
+
+    # Step 3: Insert formatted content
     requests = markdown_to_doc_requests(markdown_content)
     if requests:
         docs_service.documents().batchUpdate(
             documentId=doc_id, body={"requests": requests}
         ).execute()
 
+    doc_url = f"https://docs.google.com/document/d/{doc_id}/edit"
     return doc_id, doc_url
 
 
