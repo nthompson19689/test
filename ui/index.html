@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Content Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ------------------------------------------------------------------ */
+/*  CSS Reset & Variables                                              */
+/* ------------------------------------------------------------------ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f0f0f;--surface:#1a1a1a;--border:#2a2a2a;
+  --accent:#7c3aed;--accent-hover:#6d28d9;
+  --text:#e5e5e5;--muted:#666;
+  --green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6;--orange:#f97316;--gray:#6b7280;
+  --font-sans:'Inter',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+  --radius:8px;
+}
+html{font-size:14px}
+body{background:var(--bg);color:var(--text);font-family:var(--font-sans);min-height:100vh;display:flex}
+
+/* ------------------------------------------------------------------ */
+/*  Layout                                                             */
+/* ------------------------------------------------------------------ */
+#sidebar{width:240px;min-width:240px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:20px 16px;gap:24px;height:100vh;position:sticky;top:0}
+#sidebar .logo{font-size:1.15rem;font-weight:700;color:var(--accent);letter-spacing:-.3px}
+#main{flex:1;padding:32px 40px;min-width:0;overflow-y:auto;height:100vh}
+
+/* Domain selector */
+.domain-selector{display:flex;flex-direction:column;gap:6px}
+.domain-selector label{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.domain-selector select{background:var(--bg);color:var(--text);border:1px solid var(--border);padding:8px 10px;border-radius:var(--radius);font-family:var(--font-sans);font-size:.85rem;cursor:pointer;outline:none}
+.domain-selector select:focus{border-color:var(--accent)}
+
+/* Nav tabs */
+.nav{display:flex;flex-direction:column;gap:4px}
+.nav button{background:none;border:none;color:var(--muted);text-align:left;padding:10px 12px;border-radius:var(--radius);cursor:pointer;font-size:.9rem;font-family:var(--font-sans);transition:all .15s}
+.nav button:hover{background:var(--bg);color:var(--text)}
+.nav button.active{background:var(--accent);color:#fff}
+
+/* ------------------------------------------------------------------ */
+/*  Common                                                             */
+/* ------------------------------------------------------------------ */
+h2{font-size:1.4rem;font-weight:700;margin-bottom:20px}
+.btn{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;border:none;padding:10px 20px;border-radius:var(--radius);font-family:var(--font-sans);font-size:.85rem;font-weight:600;cursor:pointer;transition:all .15s}
+.btn:hover:not(:disabled){background:var(--accent-hover)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm{padding:6px 12px;font-size:.8rem}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text)}
+.btn-outline:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+
+input[type="text"],input[type="date"],select,textarea{
+  background:var(--bg);color:var(--text);border:1px solid var(--border);
+  padding:10px 12px;border-radius:var(--radius);font-family:var(--font-sans);
+  font-size:.85rem;outline:none;width:100%}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+
+/* Terminal */
+.terminal{background:#000;border:1px solid var(--border);border-radius:var(--radius);padding:16px;font-family:var(--font-mono);font-size:.8rem;color:#a3e635;max-height:400px;overflow-y:auto;white-space:pre-wrap;line-height:1.6;min-height:120px}
+
+/* Badge */
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.badge-green{background:rgba(34,197,94,.15);color:var(--green)}
+.badge-red{background:rgba(239,68,68,.15);color:var(--red)}
+.badge-yellow{background:rgba(234,179,8,.15);color:var(--yellow)}
+.badge-blue{background:rgba(59,130,246,.15);color:var(--blue)}
+.badge-orange{background:rgba(249,115,22,.15);color:var(--orange)}
+.badge-gray{background:rgba(107,114,128,.15);color:var(--gray)}
+
+/* Table */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+td{padding:10px 12px;border-bottom:1px solid var(--border);font-size:.85rem}
+tr:hover td{background:rgba(124,58,237,.04)}
+tr.expandable{cursor:pointer}
+
+/* Spinner */
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Toast container */
+#toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 20px;border-radius:var(--radius);font-size:.85rem;font-weight:500;color:#fff;opacity:0;transform:translateX(40px);animation:toastIn .3s forwards}
+.toast-success{background:var(--green)}
+.toast-error{background:var(--red)}
+@keyframes toastIn{to{opacity:1;transform:translateX(0)}}
+
+/* Step indicator */
+.steps{display:flex;gap:0;margin-bottom:28px}
+.step{flex:1;text-align:center;padding:10px;position:relative;color:var(--muted);font-size:.8rem;font-weight:600}
+.step.active{color:var(--accent)}
+.step.done{color:var(--green)}
+.step::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--border);border-radius:2px}
+.step.active::after{background:var(--accent)}
+.step.done::after{background:var(--green)}
+
+/* Drop zone */
+.dropzone{border:2px dashed var(--border);border-radius:var(--radius);padding:48px 24px;text-align:center;cursor:pointer;transition:all .2s;color:var(--muted)}
+.dropzone:hover,.dropzone.dragover{border-color:var(--accent);color:var(--text)}
+.dropzone .icon{font-size:2rem;margin-bottom:8px}
+.dropzone.has-file{border-color:var(--green);color:var(--green)}
+
+/* Filters row */
+.filters{display:flex;gap:12px;margin-bottom:16px;align-items:center;flex-wrap:wrap}
+.filters>*{flex:0 0 auto}
+
+/* Expand row */
+.article-expand{display:none;background:var(--bg);padding:16px;border-radius:var(--radius);max-height:300px;overflow-y:auto;font-family:var(--font-mono);font-size:.8rem;white-space:pre-wrap;line-height:1.6;color:var(--text)}
+.article-expand.open{display:block}
+
+/* Pagination */
+.pagination{display:flex;justify-content:center;gap:8px;margin-top:20px}
+.pagination button{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:var(--radius);cursor:pointer;font-size:.8rem}
+.pagination button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* Empty state */
+.empty{text-align:center;padding:60px 20px;color:var(--muted);font-size:.95rem}
+
+/* Tab content */
+.tab{display:none}
+.tab.active{display:block}
+
+/* Preview table (upload) */
+.preview-table{width:100%;overflow-x:auto;margin-top:12px}
+.preview-table table{font-size:.8rem}
+.preview-table th{background:var(--surface)}
+</style>
+</head>
+<body>
+
+<!-- ================================================================ -->
+<!--  SIDEBAR                                                         -->
+<!-- ================================================================ -->
+<div id="sidebar">
+  <div class="logo">Content Engine</div>
+
+  <div class="domain-selector">
+    <label>Client</label>
+    <select id="domainSelect"><option value="">Loading clients...</option></select>
+  </div>
+
+  <nav class="nav">
+    <button class="active" onclick="switchTab('pipeline')">Run Pipeline</button>
+    <button onclick="switchTab('upload')">Upload Keywords</button>
+    <button onclick="switchTab('schedule')">Schedule</button>
+    <button onclick="switchTab('articles')">Articles</button>
+  </nav>
+</div>
+
+<!-- ================================================================ -->
+<!--  MAIN                                                            -->
+<!-- ================================================================ -->
+<div id="main">
+
+<!-- ============= TAB 1 — Run Pipeline ============= -->
+<div id="tab-pipeline" class="tab active">
+  <h2>Run Pipeline</h2>
+  <div style="display:flex;gap:12px;margin-bottom:20px;align-items:center">
+    <input type="text" id="pipelineKeyword" placeholder="Enter keyword..." style="flex:1" />
+    <button class="btn" id="btnRunPipeline" onclick="runPipeline()">Run Pipeline</button>
+  </div>
+  <div id="pipelineStatus" style="margin-bottom:12px"></div>
+  <div class="terminal" id="pipelineTerminal"></div>
+</div>
+
+<!-- ============= TAB 2 — Upload Keywords ============= -->
+<div id="tab-upload" class="tab">
+  <h2>Upload Keywords</h2>
+
+  <div class="steps">
+    <div class="step active" id="step1Label">Step 1: Upload CSV</div>
+    <div class="step" id="step2Label">Step 2: Configure</div>
+    <div class="step" id="step3Label">Step 3: Load</div>
+  </div>
+
+  <!-- Step 1 -->
+  <div id="uploadStep1">
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('csvFile').click()">
+      <div class="icon">&#128196;</div>
+      <div>Drop your CSV here or <strong>click to browse</strong></div>
+    </div>
+    <input type="file" id="csvFile" accept=".csv" hidden />
+    <div style="margin-top:16px;text-align:right">
+      <button class="btn" id="btnUploadCSV" onclick="uploadCSV()" disabled>Upload &amp; Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 2 -->
+  <div id="uploadStep2" style="display:none">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">
+      <div style="flex:1;min-width:200px">
+        <label style="display:block;margin-bottom:6px;font-size:.8rem;color:var(--muted)">Keyword Column</label>
+        <select id="keywordColSelect"></select>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <label style="display:block;margin-bottom:6px;font-size:.8rem;color:var(--muted)">Date Column</label>
+        <select id="dateColSelect"></select>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <label style="display:block;margin-bottom:6px;font-size:.8rem;color:var(--muted)">Fallback Date</label>
+        <input type="date" id="fallbackDate" />
+      </div>
+    </div>
+    <div id="previewArea"></div>
+    <div style="margin-top:16px;display:flex;gap:12px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="goUploadStep(1)">Back</button>
+      <button class="btn" onclick="goUploadStep(3)">Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div id="uploadStep3" style="display:none">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px">
+      <p style="margin-bottom:8px"><strong>Keyword column:</strong> <span id="confirmKwCol"></span></p>
+      <p style="margin-bottom:8px"><strong>Date column:</strong> <span id="confirmDateCol"></span></p>
+      <p style="margin-bottom:8px"><strong>Fallback date:</strong> <span id="confirmFallback"></span></p>
+      <p><strong>Preview rows:</strong> <span id="confirmPreviewCount"></span></p>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="goUploadStep(2)">Back</button>
+      <button class="btn" id="btnLoadKeywords" onclick="loadKeywords()">Load Keywords</button>
+    </div>
+    <div id="loadOutput" style="margin-top:16px"></div>
+  </div>
+</div>
+
+<!-- ============= TAB 3 — Schedule ============= -->
+<div id="tab-schedule" class="tab">
+  <h2>Schedule</h2>
+  <div class="filters">
+    <input type="date" id="scheduleDate" style="width:180px" />
+    <button class="btn btn-sm" onclick="fetchSchedule()">Load Schedule</button>
+    <div style="flex:1"></div>
+    <button class="btn" id="btnBatchRun" onclick="batchRun()">Run Batch</button>
+  </div>
+  <div id="scheduleTableWrap"></div>
+  <div id="batchStatus" style="margin-top:12px"></div>
+  <div class="terminal" id="batchTerminal" style="display:none;margin-top:12px"></div>
+</div>
+
+<!-- ============= TAB 4 — Articles ============= -->
+<div id="tab-articles" class="tab">
+  <h2>Articles</h2>
+  <div class="filters">
+    <select id="articleStatusFilter" style="width:160px">
+      <option value="">All statuses</option>
+      <option value="draft">Draft</option>
+      <option value="reviewed">Reviewed</option>
+      <option value="exported">Exported</option>
+    </select>
+    <input type="date" id="articleDateFilter" style="width:180px" />
+    <button class="btn btn-sm" onclick="fetchArticles()">Filter</button>
+  </div>
+  <div id="articlesTableWrap"></div>
+  <div class="pagination" id="articlesPagination"></div>
+</div>
+
+</div><!-- /main -->
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<!-- ================================================================ -->
+<!--  JAVASCRIPT                                                      -->
+<!-- ================================================================ -->
+<script>
+const API = 'http://localhost:8000';
+
+/* ------------------------------------------------------------------ */
+/*  State                                                              */
+/* ------------------------------------------------------------------ */
+let clients = [];
+let selectedDomain = '';
+let uploadedColumns = [];
+let uploadedPreview = [];
+let allArticles = [];
+let articlesPage = 1;
+const ARTICLES_PER_PAGE = 20;
+let pipelineRunning = false;
+let batchRunning = false;
+
+/* ------------------------------------------------------------------ */
+/*  Toast notifications                                                */
+/* ------------------------------------------------------------------ */
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tab switching                                                      */
+/* ------------------------------------------------------------------ */
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+  // highlight nav button
+  const idx = { pipeline: 0, upload: 1, schedule: 2, articles: 3 }[name];
+  document.querySelectorAll('.nav button')[idx].classList.add('active');
+  // auto-fetch data for some tabs
+  if (name === 'schedule' && selectedDomain) fetchSchedule();
+  if (name === 'articles' && selectedDomain) fetchArticles();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Domain selector                                                    */
+/* ------------------------------------------------------------------ */
+async function loadClients() {
+  try {
+    const resp = await fetch(`${API}/clients`);
+    clients = await resp.json();
+    const sel = document.getElementById('domainSelect');
+    sel.innerHTML = '<option value="">Select a client...</option>';
+    clients.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.domain;
+      opt.textContent = `${c.name} (${c.domain})`;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    document.getElementById('domainSelect').innerHTML = '<option value="">Failed to load</option>';
+  }
+}
+
+document.getElementById('domainSelect').addEventListener('change', function () {
+  selectedDomain = this.value;
+  // refresh active tab data
+  const activeTab = document.querySelector('.tab.active')?.id?.replace('tab-', '');
+  if (activeTab === 'schedule' && selectedDomain) fetchSchedule();
+  if (activeTab === 'articles' && selectedDomain) fetchArticles();
+});
+
+/* ------------------------------------------------------------------ */
+/*  TAB 1 — Run Pipeline                                               */
+/* ------------------------------------------------------------------ */
+async function runPipeline() {
+  if (!selectedDomain) { toast('Select a client first', 'error'); return; }
+  const keyword = document.getElementById('pipelineKeyword').value.trim();
+  if (!keyword) { toast('Enter a keyword', 'error'); return; }
+
+  const btn = document.getElementById('btnRunPipeline');
+  const term = document.getElementById('pipelineTerminal');
+  const status = document.getElementById('pipelineStatus');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Running...';
+  term.textContent = '';
+  status.innerHTML = '';
+  pipelineRunning = true;
+
+  try {
+    const response = await fetch(`${API}/run-pipeline`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: selectedDomain, keyword })
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const msg = line.slice(6);
+          if (msg === 'DONE') {
+            status.innerHTML = '<span class="badge badge-green">Complete</span>';
+            toast('Pipeline completed successfully');
+          } else if (msg.startsWith('FAILED')) {
+            status.innerHTML = '<span class="badge badge-red">Failed</span>';
+            toast('Pipeline failed', 'error');
+          } else {
+            term.textContent += msg + '\n';
+            term.scrollTop = term.scrollHeight;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    status.innerHTML = '<span class="badge badge-red">Error</span>';
+    term.textContent += `\nConnection error: ${e.message}\n`;
+    toast('Pipeline error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Run Pipeline';
+    pipelineRunning = false;
+  }
+}
+
+// Enter key shortcut
+document.getElementById('pipelineKeyword').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && !pipelineRunning) runPipeline();
+});
+
+/* ------------------------------------------------------------------ */
+/*  TAB 2 — Upload Keywords                                            */
+/* ------------------------------------------------------------------ */
+const dropzone = document.getElementById('dropzone');
+const csvInput = document.getElementById('csvFile');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) {
+    csvInput.files = e.dataTransfer.files;
+    onFileSelected();
+  }
+});
+csvInput.addEventListener('change', onFileSelected);
+
+function onFileSelected() {
+  const file = csvInput.files[0];
+  if (file) {
+    dropzone.classList.add('has-file');
+    dropzone.innerHTML = `<div class="icon">&#9989;</div><div><strong>${file.name}</strong></div>`;
+    document.getElementById('btnUploadCSV').disabled = false;
+  }
+}
+
+async function uploadCSV() {
+  const file = csvInput.files[0];
+  if (!file) return;
+
+  const btn = document.getElementById('btnUploadCSV');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Uploading...';
+
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch(`${API}/upload-keywords`, { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Upload failed');
+
+    uploadedColumns = data.columns;
+    uploadedPreview = data.preview;
+    populateColumnSelectors();
+    goUploadStep(2);
+    toast('CSV uploaded');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Upload &amp; Continue';
+  }
+}
+
+function populateColumnSelectors() {
+  ['keywordColSelect', 'dateColSelect'].forEach(id => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '';
+    uploadedColumns.forEach(col => {
+      const opt = document.createElement('option');
+      opt.value = col;
+      opt.textContent = col;
+      sel.appendChild(opt);
+    });
+  });
+  // Show preview table
+  if (uploadedPreview.length) {
+    let html = '<div class="preview-table"><table><thead><tr>';
+    uploadedColumns.forEach(c => html += `<th>${esc(c)}</th>`);
+    html += '</tr></thead><tbody>';
+    uploadedPreview.forEach(row => {
+      html += '<tr>';
+      row.forEach(cell => html += `<td>${esc(cell)}</td>`);
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    document.getElementById('previewArea').innerHTML = html;
+  }
+}
+
+function goUploadStep(n) {
+  document.getElementById('uploadStep1').style.display = n === 1 ? 'block' : 'none';
+  document.getElementById('uploadStep2').style.display = n === 2 ? 'block' : 'none';
+  document.getElementById('uploadStep3').style.display = n === 3 ? 'block' : 'none';
+
+  ['step1Label', 'step2Label', 'step3Label'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    el.className = 'step' + (i + 1 === n ? ' active' : '') + (i + 1 < n ? ' done' : '');
+  });
+
+  if (n === 3) {
+    document.getElementById('confirmKwCol').textContent = document.getElementById('keywordColSelect').value;
+    document.getElementById('confirmDateCol').textContent = document.getElementById('dateColSelect').value;
+    document.getElementById('confirmFallback').textContent = document.getElementById('fallbackDate').value || '(none)';
+    document.getElementById('confirmPreviewCount').textContent = uploadedPreview.length + ' rows previewed';
+  }
+}
+
+async function loadKeywords() {
+  if (!selectedDomain) { toast('Select a client first', 'error'); return; }
+
+  const btn = document.getElementById('btnLoadKeywords');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Loading...';
+
+  try {
+    const resp = await fetch(`${API}/load-keywords`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: selectedDomain,
+        keyword_column: document.getElementById('keywordColSelect').value,
+        date_column: document.getElementById('dateColSelect').value,
+        fallback_date: document.getElementById('fallbackDate').value
+      })
+    });
+    const data = await resp.json();
+    const out = document.getElementById('loadOutput');
+    if (data.success) {
+      out.innerHTML = `<div class="badge badge-green">Success</div><pre class="terminal" style="margin-top:12px">${esc(data.output)}</pre>`;
+      toast('Keywords loaded successfully');
+    } else {
+      out.innerHTML = `<div class="badge badge-red">Failed</div><pre class="terminal" style="margin-top:12px">${esc(data.output)}</pre>`;
+      toast('Failed to load keywords', 'error');
+    }
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Load Keywords';
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  TAB 3 — Schedule                                                   */
+/* ------------------------------------------------------------------ */
+const intentColors = { informational: 'blue', commercial: 'orange', transactional: 'green', navigational: 'gray' };
+const statusColors = { pending: 'gray', in_progress: 'yellow', complete: 'green', failed: 'red' };
+
+async function fetchSchedule() {
+  if (!selectedDomain) return;
+  const dateVal = document.getElementById('scheduleDate').value;
+  let url = `${API}/schedule?domain=${enc(selectedDomain)}`;
+  if (dateVal) url += `&date=${enc(dateVal)}`;
+
+  const wrap = document.getElementById('scheduleTableWrap');
+  wrap.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const resp = await fetch(url);
+    const rows = await resp.json();
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="empty">No schedule entries found for this date.</div>';
+      return;
+    }
+    let html = '<table><thead><tr><th>Keyword</th><th>Intent</th><th>Scheduled For</th><th>Status</th></tr></thead><tbody>';
+    rows.forEach(r => {
+      const ic = intentColors[r.intent] || 'gray';
+      const sc = statusColors[r.status] || 'gray';
+      html += `<tr>
+        <td>${esc(r.keyword)}</td>
+        <td><span class="badge badge-${ic}">${esc(r.intent || '-')}</span></td>
+        <td>${esc(r.scheduled_for || '')}</td>
+        <td><span class="badge badge-${sc}">${esc(r.status || '-')}</span></td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty">Error loading schedule: ${esc(e.message)}</div>`;
+  }
+}
+
+async function batchRun() {
+  if (!selectedDomain) { toast('Select a client first', 'error'); return; }
+  const dateVal = document.getElementById('scheduleDate').value;
+  if (!dateVal) { toast('Pick a date first', 'error'); return; }
+
+  const btn = document.getElementById('btnBatchRun');
+  const term = document.getElementById('batchTerminal');
+  const status = document.getElementById('batchStatus');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Running...';
+  term.style.display = 'block';
+  term.textContent = '';
+  status.innerHTML = '';
+  batchRunning = true;
+
+  try {
+    const response = await fetch(`${API}/batch-run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: selectedDomain, date: dateVal })
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const msg = line.slice(6);
+          if (msg === 'DONE') {
+            status.innerHTML = '<span class="badge badge-green">Complete</span>';
+            toast('Batch run completed');
+            fetchSchedule();
+          } else if (msg.startsWith('FAILED')) {
+            status.innerHTML = '<span class="badge badge-red">Failed</span>';
+            toast('Batch run failed', 'error');
+          } else {
+            term.textContent += msg + '\n';
+            term.scrollTop = term.scrollHeight;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    status.innerHTML = '<span class="badge badge-red">Error</span>';
+    term.textContent += `\nConnection error: ${e.message}\n`;
+    toast('Batch error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Run Batch';
+    batchRunning = false;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  TAB 4 — Articles                                                   */
+/* ------------------------------------------------------------------ */
+async function fetchArticles() {
+  if (!selectedDomain) return;
+  const statusVal = document.getElementById('articleStatusFilter').value;
+  const dateVal = document.getElementById('articleDateFilter').value;
+  let url = `${API}/articles?domain=${enc(selectedDomain)}`;
+  if (statusVal) url += `&status=${enc(statusVal)}`;
+  if (dateVal) url += `&date=${enc(dateVal)}`;
+
+  const wrap = document.getElementById('articlesTableWrap');
+  wrap.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const resp = await fetch(url);
+    allArticles = await resp.json();
+    articlesPage = 1;
+    renderArticles();
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty">Error loading articles: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderArticles() {
+  const wrap = document.getElementById('articlesTableWrap');
+  if (!allArticles.length) {
+    wrap.innerHTML = '<div class="empty">No articles yet &mdash; run your first pipeline!</div>';
+    document.getElementById('articlesPagination').innerHTML = '';
+    return;
+  }
+
+  const start = (articlesPage - 1) * ARTICLES_PER_PAGE;
+  const pageItems = allArticles.slice(start, start + ARTICLES_PER_PAGE);
+
+  let html = '<table><thead><tr><th>Keyword</th><th>Status</th><th>Word Count</th><th>Date</th><th></th></tr></thead><tbody>';
+  pageItems.forEach((a, i) => {
+    const sc = statusColors[a.status] || 'gray';
+    const globalIdx = start + i;
+    html += `<tr class="expandable" onclick="toggleArticle(${globalIdx})">
+      <td>${esc(a.keyword || '')}</td>
+      <td><span class="badge badge-${sc}">${esc(a.status || '-')}</span></td>
+      <td>${a.word_count || '-'}</td>
+      <td>${esc((a.created_at || '').slice(0, 10))}</td>
+      <td><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();copyArticle(${globalIdx},this)">Copy</button></td>
+    </tr>
+    <tr><td colspan="5"><div class="article-expand" id="article-expand-${globalIdx}">${esc(a.clean_version || a.clean_version_preview || '')}</div></td></tr>`;
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+
+  // Pagination
+  const totalPages = Math.ceil(allArticles.length / ARTICLES_PER_PAGE);
+  const pag = document.getElementById('articlesPagination');
+  if (totalPages <= 1) { pag.innerHTML = ''; return; }
+  let ph = '';
+  for (let p = 1; p <= totalPages; p++) {
+    ph += `<button class="${p === articlesPage ? 'active' : ''}" onclick="articlesPage=${p};renderArticles()">${p}</button>`;
+  }
+  pag.innerHTML = ph;
+}
+
+function toggleArticle(idx) {
+  const el = document.getElementById(`article-expand-${idx}`);
+  el.classList.toggle('open');
+}
+
+function copyArticle(idx, btn) {
+  const text = allArticles[idx].clean_version || allArticles[idx].clean_version_preview || '';
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.borderColor = 'var(--green)';
+    btn.style.color = 'var(--green)';
+    setTimeout(() => { btn.textContent = orig; btn.style.borderColor = ''; btn.style.color = ''; }, 2000);
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function enc(s) { return encodeURIComponent(s); }
+
+/* ------------------------------------------------------------------ */
+/*  Init                                                               */
+/* ------------------------------------------------------------------ */
+loadClients();
+
+// Set schedule date to today
+document.getElementById('scheduleDate').valueAsDate = new Date();
+</script>
+</body>
+</html>
