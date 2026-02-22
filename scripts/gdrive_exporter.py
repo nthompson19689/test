@@ -27,6 +27,7 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 GDRIVE_SERVICE_ACCOUNT_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON")
+GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
 
 LOG_FILE = "pipeline.log"
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
@@ -108,26 +109,6 @@ def get_google_credentials():
         print(f"[ERROR] Google Drive authentication failed: {exc}")
         sys.exit(1)
 
-
-def find_or_create_folder(service, folder_name):
-    """Find a Drive folder by name, or create it. Returns (folder_id, folder_url)."""
-    query = (
-        f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' "
-        f"and trashed = false"
-    )
-    results = service.files().list(q=query, spaces="drive", fields="files(id, webViewLink)").execute()
-    files = results.get("files", [])
-    if files:
-        f = files[0]
-        return f["id"], f.get("webViewLink", "")
-
-    # Create folder
-    metadata = {
-        "name": folder_name,
-        "mimeType": "application/vnd.google-apps.folder",
-    }
-    folder = service.files().create(body=metadata, fields="id, webViewLink").execute()
-    return folder["id"], folder.get("webViewLink", "")
 
 
 def doc_name_exists(service, name, folder_id):
@@ -342,8 +323,12 @@ def main():
     drive_service = build("drive", "v3", credentials=creds)
     docs_service = build("docs", "v1", credentials=creds)
 
-    # --- Step 3: Find or create client folder ---
-    folder_id, folder_url = find_or_create_folder(drive_service, domain)
+    # --- Step 3: Use configured parent folder ---
+    if not GDRIVE_FOLDER_ID:
+        print("[ERROR] GDRIVE_FOLDER_ID must be set in .env")
+        sys.exit(1)
+    folder_id = GDRIVE_FOLDER_ID
+    folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
 
     # --- Step 4: Export each article ---
     exported = 0
