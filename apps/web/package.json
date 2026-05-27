@@ -12,6 +12,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.490.0",
     "@aws-sdk/s3-request-presigner": "^3.490.0",
+    "@iframe-resizer/child": "^5.5.9",
     "@prisma/client": "^5.19.1",
     "next": "^14.2.0",
     "next-auth": "^5.0.0-beta.19",

@@ -10,6 +10,19 @@ const nextConfig = {
     });
     return config;
   },
+  async headers() {
+    return [
+      {
+        source: '/formatter',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors 'self' https://www.tryordinal.com https://tryordinal.com",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;
